@@ -31,8 +31,12 @@
 #ifndef _LINUX_VGA_SWITCHEROO_H_
 #define _LINUX_VGA_SWITCHEROO_H_
 
-#include <linux/fb.h>
+#include <linux/errno.h>
+#include <linux/types.h>
 
+struct device;
+struct dev_pm_domain;
+struct fb_info;
 struct pci_dev;
 
 /**
@@ -127,7 +131,6 @@ struct vga_switcheroo_handler {
  * @set_gpu_state: do the equivalent of suspend/resume for the card.
  * 	Mandatory. This should not cut power to the discrete GPU,
  * 	which is the job of the handler
- * @reprobe: deprecated
  * @can_switch: check if the device is in a position to switch now.
  * 	Mandatory. The client should return false if a user space process
  * 	has one of its device files open
@@ -147,7 +150,6 @@ struct vga_switcheroo_handler {
  */
 struct vga_switcheroo_client_ops {
 	void (*set_gpu_state)(struct pci_dev *dev, enum vga_switcheroo_state);
-	void (*reprobe)(struct pci_dev *dev);
 	bool (*can_switch)(struct pci_dev *dev);
 	void (*pre_switch)(struct pci_dev *dev);
 	void (*post_switch)(struct pci_dev *dev);
@@ -162,9 +164,6 @@ int vga_switcheroo_register_client(struct pci_dev *dev,
 int vga_switcheroo_register_audio_client(struct pci_dev *pdev,
 					 const struct vga_switcheroo_client_ops *ops,
 					 struct pci_dev *vga_dev);
-
-void vga_switcheroo_client_fb_set(struct pci_dev *dev,
-				  struct fb_info *info);
 
 int vga_switcheroo_register_handler(const struct vga_switcheroo_handler *handler,
 				    enum vga_switcheroo_handler_flags_t handler_flags);
@@ -185,7 +184,6 @@ void vga_switcheroo_fini_domain_pm_ops(struct device *dev);
 static inline void vga_switcheroo_unregister_client(struct pci_dev *dev) {}
 static inline int vga_switcheroo_register_client(struct pci_dev *dev,
 		const struct vga_switcheroo_client_ops *ops, bool driver_power_control) { return 0; }
-static inline void vga_switcheroo_client_fb_set(struct pci_dev *dev, struct fb_info *info) {}
 static inline int vga_switcheroo_register_handler(const struct vga_switcheroo_handler *handler,
 		enum vga_switcheroo_handler_flags_t handler_flags) { return 0; }
 static inline int vga_switcheroo_register_audio_client(struct pci_dev *pdev,

@@ -186,21 +186,11 @@ static int s6d16d0_probe(struct mipi_dsi_device *dsi)
 		return ret;
 	}
 
-	drm_panel_add(&s6->panel);
+	ret = devm_drm_panel_add(dev, &s6->panel);
+	if (ret)
+		return ret;
 
-	ret = mipi_dsi_attach(dsi);
-	if (ret < 0)
-		drm_panel_remove(&s6->panel);
-
-	return ret;
-}
-
-static void s6d16d0_remove(struct mipi_dsi_device *dsi)
-{
-	struct s6d16d0 *s6 = mipi_dsi_get_drvdata(dsi);
-
-	mipi_dsi_detach(dsi);
-	drm_panel_remove(&s6->panel);
+	return devm_mipi_dsi_attach(dev, dsi);
 }
 
 static const struct of_device_id s6d16d0_of_match[] = {
@@ -211,7 +201,6 @@ MODULE_DEVICE_TABLE(of, s6d16d0_of_match);
 
 static struct mipi_dsi_driver s6d16d0_driver = {
 	.probe = s6d16d0_probe,
-	.remove = s6d16d0_remove,
 	.driver = {
 		.name = "panel-samsung-s6d16d0",
 		.of_match_table = s6d16d0_of_match,

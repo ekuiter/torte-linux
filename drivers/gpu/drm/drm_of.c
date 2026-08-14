@@ -288,7 +288,6 @@ int drm_of_find_panel_or_bridge(const struct device_node *np,
 				struct drm_bridge **bridge)
 {
 	int ret = -EPROBE_DEFER;
-	struct device_node *remote;
 
 	if (WARN_ON(!panel))
 		return -EINVAL;
@@ -304,7 +303,8 @@ int drm_of_find_panel_or_bridge(const struct device_node *np,
 	if (!of_graph_is_present(np))
 		return -ENODEV;
 
-	remote = of_graph_get_remote_node(np, port, endpoint);
+	struct device_node *remote __free(device_node) =
+		of_graph_get_remote_node(np, port, endpoint);
 	if (!remote)
 		return -ENODEV;
 
@@ -326,7 +326,6 @@ int drm_of_find_panel_or_bridge(const struct device_node *np,
 
 	}
 
-	of_node_put(remote);
 	return ret;
 }
 EXPORT_SYMBOL_GPL(drm_of_find_panel_or_bridge);

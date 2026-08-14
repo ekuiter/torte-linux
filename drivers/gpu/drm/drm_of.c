@@ -287,12 +287,12 @@ int drm_of_find_panel_or_bridge(const struct device_node *np,
 				struct drm_panel **panel,
 				struct drm_bridge **bridge)
 {
-	int ret = -EPROBE_DEFER;
-
 	if (WARN_ON(!panel))
 		return -EINVAL;
 
 	*panel = NULL;
+	if (bridge)
+		*bridge = NULL;
 
 	/*
 	 * of_graph_get_remote_node() produces a noisy error message if port
@@ -310,23 +310,20 @@ int drm_of_find_panel_or_bridge(const struct device_node *np,
 
 	*panel = of_drm_find_panel(remote);
 	if (!IS_ERR(*panel))
-		ret = 0;
-	else
-		*panel = NULL;
+		return 0;
+
+	*panel = NULL;
 
 	if (bridge) {
-		if (ret) {
-			/* No panel found yet, check for a bridge next. */
-			*bridge = of_drm_find_bridge(remote);
-			if (*bridge)
-				ret = 0;
-		} else {
-			*bridge = NULL;
-		}
+		/* No panel found yet, check for a bridge next. */
+		*bridge = of_drm_find_bridge(remote);
+		if (*bridge)
+			return 0;
 
+		*bridge = NULL;
 	}
 
-	return ret;
+	return -EPROBE_DEFER;
 }
 EXPORT_SYMBOL_GPL(drm_of_find_panel_or_bridge);
 

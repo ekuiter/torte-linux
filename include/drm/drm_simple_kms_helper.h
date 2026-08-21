@@ -39,7 +39,6 @@ struct drm_simple_display_pipe_funcs {
 			      struct drm_plane_state *plane_state);
 	int (*enable_vblank)(struct drm_simple_display_pipe *pipe);
 	void (*disable_vblank)(struct drm_simple_display_pipe *pipe);
-	void (*reset_crtc)(struct drm_simple_display_pipe *pipe);
 	struct drm_crtc_state * (*duplicate_crtc_state)(struct drm_simple_display_pipe *pipe);
 	void (*destroy_crtc_state)(struct drm_simple_display_pipe *pipe,
 				   struct drm_crtc_state *crtc_state);

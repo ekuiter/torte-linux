@@ -92,17 +92,6 @@ static const struct drm_crtc_helper_funcs drm_simple_kms_crtc_helper_funcs = {
 	.atomic_disable = drm_simple_kms_crtc_disable,
 };
 
-static void drm_simple_kms_crtc_reset(struct drm_crtc *crtc)
-{
-	struct drm_simple_display_pipe *pipe;
-
-	pipe = container_of(crtc, struct drm_simple_display_pipe, crtc);
-	if (!pipe->funcs || !pipe->funcs->reset_crtc)
-		return drm_atomic_helper_crtc_reset(crtc);
-
-	return pipe->funcs->reset_crtc(pipe);
-}
-
 static struct drm_crtc_state *drm_simple_kms_crtc_duplicate_state(struct drm_crtc *crtc)
 {
 	struct drm_simple_display_pipe *pipe;
@@ -148,7 +137,7 @@ static void drm_simple_kms_crtc_disable_vblank(struct drm_crtc *crtc)
 }
 
 static const struct drm_crtc_funcs drm_simple_kms_crtc_funcs = {
-	.reset = drm_simple_kms_crtc_reset,
+	.reset = drm_atomic_helper_crtc_reset,
 	.destroy = drm_crtc_cleanup,
 	.set_config = drm_atomic_helper_set_config,
 	.page_flip = drm_atomic_helper_page_flip,

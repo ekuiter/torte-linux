@@ -527,23 +527,21 @@ int drm_sysfb_crtc_helper_atomic_check(struct drm_crtc *crtc, struct drm_atomic_
 }
 EXPORT_SYMBOL(drm_sysfb_crtc_helper_atomic_check);
 
-void drm_sysfb_crtc_reset(struct drm_crtc *crtc)
+struct drm_crtc_state *drm_sysfb_crtc_create_state(struct drm_crtc *crtc)
 {
 	struct drm_sysfb_device *sysfb = to_drm_sysfb_device(crtc->dev);
 	struct drm_sysfb_crtc_state *sysfb_crtc_state;
 
-	if (crtc->state)
-		drm_sysfb_crtc_state_destroy(to_drm_sysfb_crtc_state(crtc->state));
-
 	sysfb_crtc_state = kzalloc_obj(*sysfb_crtc_state);
-	if (sysfb_crtc_state) {
-		sysfb_crtc_state->format = sysfb->fb_format;
-		__drm_atomic_helper_crtc_reset(crtc, &sysfb_crtc_state->base);
-	} else {
-		__drm_atomic_helper_crtc_reset(crtc, NULL);
-	}
+	if (!sysfb_crtc_state)
+		return ERR_PTR(-ENOMEM);
+
+	sysfb_crtc_state->format = sysfb->fb_format;
+	__drm_atomic_helper_crtc_state_init(&sysfb_crtc_state->base, crtc);
+
+	return &sysfb_crtc_state->base;
 }
-EXPORT_SYMBOL(drm_sysfb_crtc_reset);
+EXPORT_SYMBOL(drm_sysfb_crtc_create_state);
 
 struct drm_crtc_state *drm_sysfb_crtc_atomic_duplicate_state(struct drm_crtc *crtc)
 {

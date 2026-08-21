@@ -493,19 +493,17 @@ static const struct drm_crtc_helper_funcs komeda_crtc_helper_funcs = {
 	.mode_fixup	= komeda_crtc_mode_fixup,
 };
 
-static void komeda_crtc_reset(struct drm_crtc *crtc)
+static struct drm_crtc_state *komeda_crtc_create_state(struct drm_crtc *crtc)
 {
 	struct komeda_crtc_state *state;
 
-	if (crtc->state)
-		__drm_atomic_helper_crtc_destroy_state(crtc->state);
-
-	kfree(to_kcrtc_st(crtc->state));
-	crtc->state = NULL;
-
 	state = kzalloc_obj(*state);
-	if (state)
-		__drm_atomic_helper_crtc_reset(crtc, &state->base);
+	if (!state)
+		return ERR_PTR(-ENOMEM);
+
+	__drm_atomic_helper_crtc_state_init(&state->base, crtc);
+
+	return &state->base;
 }
 
 static struct drm_crtc_state *
@@ -555,7 +553,7 @@ static const struct drm_crtc_funcs komeda_crtc_funcs = {
 	.destroy		= drm_crtc_cleanup,
 	.set_config		= drm_atomic_helper_set_config,
 	.page_flip		= drm_atomic_helper_page_flip,
-	.reset			= komeda_crtc_reset,
+	.atomic_create_state = komeda_crtc_create_state,
 	.atomic_duplicate_state	= komeda_crtc_atomic_duplicate_state,
 	.atomic_destroy_state	= komeda_crtc_atomic_destroy_state,
 	.enable_vblank		= komeda_crtc_vblank_enable,

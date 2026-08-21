@@ -1467,7 +1467,7 @@ static int ssd133x_crtc_atomic_check(struct drm_crtc *crtc,
 }
 
 /* Called during init to allocate the CRTC's atomic state. */
-static void ssd130x_crtc_reset(struct drm_crtc *crtc)
+static struct drm_crtc_state *ssd130x_crtc_create_state(struct drm_crtc *crtc)
 {
 	struct ssd130x_crtc_state *ssd130x_state;
 
@@ -1475,9 +1475,11 @@ static void ssd130x_crtc_reset(struct drm_crtc *crtc)
 
 	ssd130x_state = kzalloc_obj(*ssd130x_state);
 	if (!ssd130x_state)
-		return;
+		return ERR_PTR(-ENOMEM);
 
-	__drm_atomic_helper_crtc_reset(crtc, &ssd130x_state->base);
+	__drm_atomic_helper_crtc_state_init(&ssd130x_state->base, crtc);
+
+	return &ssd130x_state->base;
 }
 
 static struct drm_crtc_state *ssd130x_crtc_duplicate_state(struct drm_crtc *crtc)
@@ -1534,7 +1536,7 @@ static const struct drm_crtc_helper_funcs ssd130x_crtc_helper_funcs[] = {
 };
 
 static const struct drm_crtc_funcs ssd130x_crtc_funcs = {
-	.reset = ssd130x_crtc_reset,
+	.atomic_create_state = ssd130x_crtc_create_state,
 	.destroy = drm_crtc_cleanup,
 	.set_config = drm_atomic_helper_set_config,
 	.page_flip = drm_atomic_helper_page_flip,

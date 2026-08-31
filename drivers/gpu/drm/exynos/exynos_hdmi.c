@@ -1579,7 +1579,6 @@ static const struct drm_encoder_funcs exynos_hdmi_encoder_funcs = {
 	.destroy = drm_encoder_cleanup,
 };
 
-
 static const struct drm_encoder_helper_funcs exynos_hdmi_encoder_helper_funcs = {
 	.mode_fixup	= hdmi_mode_fixup,
 	.enable		= hdmi_enable,
@@ -1923,7 +1922,7 @@ static int hdmi_get_ddc_adapter(struct hdmi_context *hdata)
 		return -ENODEV;
 	}
 
-	adpt = of_find_i2c_adapter_by_node(np);
+	adpt = of_get_i2c_adapter_by_node(np);
 	of_node_put(np);
 
 	if (!adpt) {
@@ -2079,7 +2078,7 @@ err_hdmiphy:
 	if (hdata->regs_hdmiphy)
 		iounmap(hdata->regs_hdmiphy);
 err_ddc:
-	put_device(&hdata->ddc_adpt->dev);
+	i2c_put_adapter(hdata->ddc_adpt);
 
 	return ret;
 }
@@ -2104,7 +2103,7 @@ static void hdmi_remove(struct platform_device *pdev)
 	if (hdata->regs_hdmiphy)
 		iounmap(hdata->regs_hdmiphy);
 
-	put_device(&hdata->ddc_adpt->dev);
+	i2c_put_adapter(hdata->ddc_adpt);
 
 	drm_bridge_put(hdata->bridge);
 

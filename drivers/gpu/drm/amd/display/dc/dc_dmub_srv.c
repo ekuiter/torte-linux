@@ -1908,6 +1908,8 @@ static void dc_dmub_srv_ib_based_fams2_update_config(struct dc *dc,
 	config->global.features.bits.enable = enable && context->bw_ctx.bw.dcn.fams2_global_config.features.bits.enable;
 	config->global.features.bits.enable_ppt_check = dc->debug.fams2_config.bits.enable_ppt_check;
 
+	dmub_srv_flush_buffer_mem(dc->ctx->dmub_srv->dmub, &dc->ctx->dmub_srv->dmub->ib_mem_gart);
+
 	dm_execute_dmub_cmd_list(dc->ctx, 1, &cmd, DM_DMUB_WAIT_TYPE_WAIT);
 }
 
@@ -2073,7 +2075,7 @@ bool dc_dmub_srv_ips_query_residency_info(const struct dc_context *ctx, uint8_t 
 	union dmub_rb_cmd cmd;
 	uint32_t bytes = sizeof(struct dmub_ips_residency_info);
 
-	dmub_flush_buffer_mem(&ctx->dmub_srv->dmub->scratch_mem_fb);
+	dmub_srv_flush_buffer_mem(ctx->dmub_srv->dmub, &ctx->dmub_srv->dmub->scratch_mem_fb);
 	memset(&cmd, 0, sizeof(cmd));
 
 	cmd.ips_query_residency_info.header.type = DMUB_CMD__IPS;
@@ -2428,4 +2430,48 @@ void dc_dmub_srv_log_preos_dmcub_info(struct dc_dmub_srv *dc_dmub_srv)
 		DC_LOG_DEBUG("fb_base					: 0x%016llx", dmub->preos_info.fb_base);
 		DC_LOG_DEBUG("fb_offset					: 0x%016llx", dmub->preos_info.fb_offset);
 	}
+}
+
+bool dc_dmub_srv_ihc_set_dig_hdcp_interrupt_dest(
+	struct dc_dmub_srv *dc_dmub_srv,
+	uint8_t dig_id,
+	bool to_dmu)
+{
+	union dmub_rb_cmd cmd;
+
+	if (!dc_dmub_srv || !dc_dmub_srv->dmub)
+		return false;
+
+	memset(&cmd, 0, sizeof(cmd));
+
+	cmd.ihc.header.type = DMUB_CMD__IHC;
+	cmd.ihc.header.sub_type = DMUB_CMD__IHC_SET_DIG_HDCP_INTERRUPT_DEST;
+	cmd.ihc.header.payload_bytes = sizeof(cmd.ihc.data);
+
+	cmd.ihc.data.dig_id = dig_id;
+	cmd.ihc.data.to_dmu = to_dmu ? 1 : 0;
+
+	dc_wake_and_execute_dmub_cmd(dc_dmub_srv->ctx, &cmd, DM_DMUB_WAIT_TYPE_WAIT);
+
+	return true;
+}
+
+void dc_dmub_srv_get_fams2_debug_meta(struct dc_dmub_srv *dc_dmub_srv)
+{
+	union dmub_rb_cmd cmd;
+
+	memset(&cmd, 0, sizeof(cmd));
+
+	cmd.ib_fams2_debug_meta.header.type = DMUB_CMD__FW_ASSISTED_MCLK_SWITCH;
+	cmd.ib_fams2_debug_meta.header.sub_type = DMUB_CMD__FAMS2_IB_DEBUG_META;
+
+	cmd.ib_fams2_debug_meta.ib_data.src.quad_part = dc_dmub_srv->dmub->ib_mem_gart.gpu_addr;
+	cmd.ib_fams2_debug_meta.ib_data.size = dc_dmub_srv->dmub->ib_mem_gart.size > 0xFFFF ?
+			0xFFFF : (uint16_t)dc_dmub_srv->dmub->ib_mem_gart.size;
+
+	/* flush any existing writes to the buffer to prevent conflicts */
+	dmub_srv_flush_buffer_mem(dc_dmub_srv->dmub, &dc_dmub_srv->dmub->ib_mem_gart);
+
+	dm_execute_dmub_cmd_list(dc_dmub_srv->ctx, 1, &cmd, DM_DMUB_WAIT_TYPE_WAIT);
+
 }

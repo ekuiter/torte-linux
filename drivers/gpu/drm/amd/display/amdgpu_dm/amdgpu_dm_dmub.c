@@ -38,7 +38,7 @@
 #include "amdgpu_ucode.h"
 #include "amdgpu_dm.h"
 #include "amdgpu_dm_dmub.h"
-#include "amdgpu_dm_kunit_helpers.h"
+#include "dm_helpers.h"
 #include <linux/component.h>
 #include <linux/firmware.h>
 
@@ -63,6 +63,7 @@ MODULE_FIRMWARE(FIRMWARE_DCN_36_DMUB);
 MODULE_FIRMWARE(FIRMWARE_DCN_401_DMUB);
 MODULE_FIRMWARE(FIRMWARE_DCN_42_DMUB);
 MODULE_FIRMWARE(FIRMWARE_DCN_42B_DMUB);
+MODULE_FIRMWARE(FIRMWARE_DCN_60_DMUB);
 
 /**
  * dm_dmub_aux_setconfig_callback - Callback for AUX or SET_CONFIG command.
@@ -147,7 +148,7 @@ int dm_dmub_hw_init(struct amdgpu_device *adev)
 	struct dmub_srv_hw_params hw_params;
 	enum dmub_status status;
 	const unsigned char *fw_inst_const, *fw_bss_data;
-	u32 i, fw_inst_const_size, fw_bss_data_size;
+	u32 fw_inst_const_size, fw_bss_data_size;
 	bool has_hw_support;
 
 	if (!dmub_srv)
@@ -243,8 +244,7 @@ int dm_dmub_hw_init(struct amdgpu_device *adev)
 	if (dmcu)
 		hw_params.psp_version = dmcu->psp_version;
 
-	for (i = 0; i < fb_info->num_fb; ++i)
-		hw_params.fb[i] = &fb_info->fb[i];
+	hw_params.fb_info = fb_info;
 
 	/* Enable usb4 dpia in the FW APU */
 	if (dc->caps.is_apu &&
@@ -386,7 +386,7 @@ dm_dmub_send_vbios_gpint_command(struct amdgpu_device *adev,
 	return DMUB_STATUS_TIMEOUT;
 }
 
-static void *dm_dmub_get_vbios_bounding_box(struct amdgpu_device *adev)
+STATIC_IFN_KUNIT void *dm_dmub_get_vbios_bounding_box(struct amdgpu_device *adev)
 {
 	void *bb;
 	long long addr;
@@ -408,6 +408,9 @@ static void *dm_dmub_get_vbios_bounding_box(struct amdgpu_device *adev)
 	case IP_VERSION(4, 2, 0):
 	case IP_VERSION(4, 2, 1):
 		bb_size = sizeof(struct dml2_soc_bb);
+		break;
+	case IP_VERSION(6, 0, 0):
+		bb_size = sizeof(struct dmub_soc_bb_params);
 		break;
 	default:
 		return NULL;
@@ -441,6 +444,7 @@ free_bb:
 	return NULL;
 
 }
+EXPORT_IF_KUNIT(dm_dmub_get_vbios_bounding_box);
 
 enum dmub_ips_disable_type dm_get_default_ips_mode(
 	struct amdgpu_device *adev)
@@ -507,6 +511,7 @@ int dm_dmub_sw_init(struct amdgpu_device *adev)
 		DMUB_WINDOW_MEMORY_TYPE_FB,		/* DMUB_WINDOW_CURSOR_OFFLOAD */
 	};
 	int r;
+	int mem_domain = AMDGPU_GEM_DOMAIN_GTT;
 
 	switch (amdgpu_ip_version(adev, DCE_HWIP, 0)) {
 	case IP_VERSION(2, 1, 0):
@@ -558,6 +563,9 @@ int dm_dmub_sw_init(struct amdgpu_device *adev)
 		break;
 	case IP_VERSION(4, 2, 1):
 		dmub_asic = DMUB_ASIC_DCN42B;
+		break;
+	case IP_VERSION(6, 0, 0):
+		dmub_asic = DMUB_ASIC_DCN60;
 		break;
 	default:
 		/* ASIC doesn't support DMUB. */
@@ -640,13 +648,19 @@ int dm_dmub_sw_init(struct amdgpu_device *adev)
 		return -EINVAL;
 	}
 
+	/* Limit to allocate dmub to GTT on DCN32/1
+	 * TODO: Other asics with GDDR7 may have worse latency
+	 */
+	if (dmub_asic != DMUB_ASIC_DCN32 &&
+	    dmub_asic != DMUB_ASIC_DCN321)
+		mem_domain |= AMDGPU_GEM_DOMAIN_VRAM;
+
 	/*
 	 * Allocate a framebuffer based on the total size of all the regions.
 	 * TODO: Move this into GART.
 	 */
 	r = amdgpu_bo_create_kernel(adev, region_info.fb_size, PAGE_SIZE,
-				    AMDGPU_GEM_DOMAIN_VRAM |
-				    AMDGPU_GEM_DOMAIN_GTT,
+				    mem_domain,
 				    &adev->dm.dmub_bo,
 				    &adev->dm.dmub_bo_gpu_addr,
 				    &adev->dm.dmub_bo_cpu_addr);
@@ -745,6 +759,9 @@ int dm_init_microcode(struct amdgpu_device *adev)
 	case IP_VERSION(4, 2, 1):
 		fw_name_dmub = FIRMWARE_DCN_42B_DMUB;
 		break;
+	case IP_VERSION(6, 0, 0):
+		fw_name_dmub = FIRMWARE_DCN_60_DMUB;
+		break;
 	default:
 		/* ASIC doesn't support DMUB. */
 		return 0;
@@ -799,8 +816,8 @@ int amdgpu_dm_process_dmub_aux_transfer_sync(
 	/*write req may receive a byte indicating partially written number as well*/
 	if (p_notify->aux_reply.length && payload->data) {
 		/* Bound the reply to the scratch buffer it was read into. */
-		ret = min((uint32_t)p_notify->aux_reply.length,
-			  (uint32_t)sizeof(p_notify->aux_reply.data));
+		ret = min_t(uint32_t, p_notify->aux_reply.length,
+			    sizeof(p_notify->aux_reply.data));
 
 		/*
 		 * During a write-status-update retry the caller zeroes
@@ -809,7 +826,7 @@ int amdgpu_dm_process_dmub_aux_transfer_sync(
 		 * so only clamp to payload->length for regular transfers.
 		 */
 		if (!payload->write_status_update)
-			ret = min(ret, payload->length);
+			ret = min_t(int, ret, payload->length);
 
 		memcpy(payload->data, p_notify->aux_reply.data, ret);
 	} else {
@@ -823,8 +840,9 @@ out:
 	mutex_unlock(&adev->dm.dpia_aux_lock);
 	return ret;
 }
+EXPORT_IF_KUNIT(amdgpu_dm_process_dmub_aux_transfer_sync);
 
-static void abort_fused_io(
+STATIC_IFN_KUNIT void abort_fused_io(
 		struct dc_context *ctx,
 		const struct dmub_cmd_fused_request *request
 )
@@ -838,6 +856,7 @@ static void abort_fused_io(
 	io->request = *request;
 	dm_execute_dmub_cmd(ctx, &command, DM_DMUB_WAIT_TYPE_NO_WAIT);
 }
+EXPORT_IF_KUNIT(abort_fused_io);
 
 static bool execute_fused_io(
 		struct amdgpu_device *dev,
@@ -925,6 +944,7 @@ int amdgpu_dm_process_dmub_set_config_sync(
 	mutex_unlock(&adev->dm.dpia_aux_lock);
 	return ret;
 }
+EXPORT_IF_KUNIT(amdgpu_dm_process_dmub_set_config_sync);
 
 bool dm_execute_dmub_cmd(const struct dc_context *ctx, union dmub_rb_cmd *cmd, enum dm_dmub_wait_type wait_type)
 {
@@ -933,6 +953,7 @@ bool dm_execute_dmub_cmd(const struct dc_context *ctx, union dmub_rb_cmd *cmd, e
 	guard(spinlock_irqsave)(&adev->dm.dmub_lock);
 	return dc_dmub_srv_cmd_run(ctx->dmub_srv, cmd, wait_type);
 }
+EXPORT_IF_KUNIT(dm_execute_dmub_cmd);
 
 bool dm_execute_dmub_cmd_list(const struct dc_context *ctx, unsigned int count, union dmub_rb_cmd *cmd, enum dm_dmub_wait_type wait_type)
 {

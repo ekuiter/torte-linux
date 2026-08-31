@@ -102,7 +102,7 @@ static int exynos_dp_bind(struct device *dev, struct device *master, void *data)
 	ret = drm_encoder_init(drm_dev, encoder, &exynos_dp_encoder_funcs,
 			       DRM_MODE_ENCODER_TMDS, NULL);
 	if (ret) {
-		drm_err(drm_dev, "Failed to initialize encoder\n");
+		dev_err(dp->dev, "Failed to initialize encoder\n");
 		return ret;
 	}
 

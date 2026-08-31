@@ -12,8 +12,8 @@
 #include <linux/platform_device.h>
 
 #include <drm/bridge/samsung-dsim.h>
-#include <drm/drm_probe_helper.h>
 #include <drm/drm_encoder.h>
+#include <drm/drm_probe_helper.h>
 
 #include "exynos_drm_crtc.h"
 #include "exynos_drm_drv.h"

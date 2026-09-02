@@ -125,9 +125,7 @@ fn main() {
     // Sort paths.
     paths.sort();
 
-    let mut rust_tests = String::new();
-    let mut c_test_declarations = String::new();
-    let mut c_test_cases = String::new();
+    let mut tests = String::new();
     let mut body = String::new();
     let mut last_file = String::new();
     let mut number = 0;
@@ -172,10 +170,10 @@ fn main() {
 
         use std::fmt::Write;
         write!(
-            rust_tests,
+            tests,
             r#"/// Generated `{name}` KUnit test case from a Rust documentation test.
-#[no_mangle]
-pub extern "C" fn {kunit_name}(__kunit_test: *mut ::kernel::bindings::kunit) {{
+#[test]
+fn {kunit_name}() {{
     /// Overrides the usual [`file!`] macro with one that expands to the real path.
     #[allow(unused)]
     macro_rules! file {{
@@ -188,26 +186,6 @@ pub extern "C" fn {kunit_name}(__kunit_test: *mut ::kernel::bindings::kunit) {{
         // NOTE: This does not expand to a literal, but a constant expression.
         // Therefore code that depends on `line!()` expanding to a literal needs special adjustment.
         () => {{ const {{ ::core::line!() - __DOCTEST_ANCHOR + {line} }} }}
-    }}
-
-    /// Overrides the usual [`assert!`] macro with one that calls KUnit instead.
-    #[allow(unused)]
-    macro_rules! assert {{
-        ($cond:expr $(,)?) => {{{{
-            ::kernel::kunit_assert!(
-                "{kunit_name}", $cond
-            );
-        }}}}
-    }}
-
-    /// Overrides the usual [`assert_eq!`] macro with one that calls KUnit instead.
-    #[allow(unused)]
-    macro_rules! assert_eq {{
-        ($left:expr, $right:expr $(,)?) => {{{{
-            ::kernel::kunit_assert_eq!(
-                "{kunit_name}", $left, $right
-            );
-        }}}}
     }}
 
     // Many tests need the prelude, so provide it by default.
@@ -238,14 +216,9 @@ pub extern "C" fn {kunit_name}(__kunit_test: *mut ::kernel::bindings::kunit) {{
 "#
         )
         .unwrap();
-
-        write!(c_test_declarations, "void {kunit_name}(struct kunit *);\n").unwrap();
-        write!(c_test_cases, "    KUNIT_CASE({kunit_name}),\n").unwrap();
     }
 
-    let rust_tests = rust_tests.trim();
-    let c_test_declarations = c_test_declarations.trim();
-    let c_test_cases = c_test_cases.trim();
+    let tests = tests.trim();
 
     write!(
         BufWriter::new(File::create("rust/doctests_kernel_generated.rs").unwrap()),
@@ -271,34 +244,10 @@ impl ModuleMetadata for LocalModule {{
     }};
 }}
 
-{rust_tests}
-"#
-    )
-    .unwrap();
-
-    write!(
-        BufWriter::new(File::create("rust/doctests_kernel_generated_kunit.c").unwrap()),
-        r#"/*
- * `kernel` crate documentation tests.
- */
-
-#include <kunit/test.h>
-
-{c_test_declarations}
-
-static struct kunit_case test_cases[] = {{
-    {c_test_cases}
-    {{ }}
-}};
-
-static struct kunit_suite test_suite = {{
-    .name = "rust_doctests_kernel",
-    .test_cases = test_cases,
-}};
-
-kunit_test_suite(test_suite);
-
-MODULE_LICENSE("GPL");
+#[kernel::macros::kunit_tests(rust_doctests_kernel)]
+mod tests {{
+{tests}
+}}
 "#
     )
     .unwrap();

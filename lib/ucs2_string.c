@@ -51,20 +51,18 @@ EXPORT_SYMBOL(ucs2_strsize);
  */
 ssize_t ucs2_strscpy(ucs2_char_t *dst, const ucs2_char_t *src, size_t count)
 {
-	long res;
-
 	/*
 	 * Ensure that we have a valid amount of space. We need to store at
 	 * least one NUL-character.
 	 */
-	if (count == 0 || WARN_ON_ONCE(count > INT_MAX / sizeof(*dst)))
+	if (count == 0 || count > SSIZE_MAX)
 		return -E2BIG;
 
 	/*
 	 * Copy at most 'count' characters, return early if we find a
 	 * NUL-terminator.
 	 */
-	for (res = 0; res < count; res++) {
+	for (ssize_t res = 0; res < count; res++) {
 		ucs2_char_t c;
 
 		c = src[res];

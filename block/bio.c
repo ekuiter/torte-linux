@@ -320,6 +320,26 @@ void bio_reuse(struct bio *bio, blk_opf_t opf)
 }
 EXPORT_SYMBOL_GPL(bio_reuse);
 
+/**
+ * bio_prepare_reissue - prepare a bio for reuissing the original I/O
+ * @bio:	bio to reuse
+ * @bdev:	block device to use the bio for
+ *
+ * Prepare @bio to be resubmitted to retry the original operation.
+ * The caller must reset bio->bi_iter to the original state.
+ */
+void bio_prepare_reissue(struct bio *bio, struct block_device *bdev)
+{
+	bio->bi_bdev = bdev;
+	bio_associate_blkg(bio);
+	bio->bi_flags &=
+		(BIO_PAGE_PINNED | BIO_CLONED | BIO_QUIET | BIO_REFFED);
+	bio->bi_status = BLK_STS_OK;
+	bio->bi_bvec_gap_bit = 0;
+	atomic_set(&bio->__bi_remaining, 1);
+}
+EXPORT_SYMBOL_GPL(bio_prepare_reissue);
+
 static struct bio *__bio_chain_endio(struct bio *bio)
 {
 	struct bio *parent = bio->bi_private;

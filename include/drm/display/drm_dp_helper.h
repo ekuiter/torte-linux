@@ -115,6 +115,7 @@ struct drm_dp_vsc_sdp {
  * @duration_decr_ms: Successive frame duration decrease
  * @target_rr_divider: Target refresh rate divider
  * @mode: Adaptive Sync Operation Mode
+ * @coasting_vtotal: Coasting vtotal
  */
 struct drm_dp_as_sdp {
 	unsigned char sdp_type;
@@ -137,6 +138,12 @@ bool drm_dp_vsc_sdp_supported(struct drm_dp_aux *aux, const u8 dpcd[DP_RECEIVER_
 bool drm_dp_as_sdp_supported(struct drm_dp_aux *aux, const u8 dpcd[DP_RECEIVER_CAP_SIZE]);
 
 int drm_dp_psr_setup_time(const u8 psr_cap[EDP_PSR_RECEIVER_CAP_SIZE]);
+
+static inline bool
+drm_dp_lane_count_is_valid(int lane_count)
+{
+	return lane_count == 1 || lane_count == 2 || lane_count == 4;
+}
 
 static inline int
 drm_dp_max_link_rate(const u8 dpcd[DP_RECEIVER_CAP_SIZE])

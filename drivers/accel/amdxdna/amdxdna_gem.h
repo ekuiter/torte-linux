@@ -12,7 +12,6 @@
 #include "amdxdna_pci_drv.h"
 
 struct amdxdna_umap {
-	struct vm_area_struct		*vma;
 	struct mmu_interval_notifier	notifier;
 	struct hmm_range		range;
 	struct work_struct		hmm_unreg_work;
@@ -21,6 +20,7 @@ struct amdxdna_umap {
 	struct kref			refcnt;
 	bool				invalid;
 	bool				unmapped;
+	bool				cleanup;
 };
 
 struct amdxdna_mem {
@@ -47,8 +47,7 @@ struct amdxdna_gem_obj {
 
 	/* Below members are initialized when needed */
 	struct drm_mm_node		mm_node; /* For AMDXDNA_BO_DEV */
-	u32				heap_start_id;
-	u32				heap_end_id;
+	struct xarray			heap_xa;
 	u64				dev_addr; /* For heap bo */
 	u32				assigned_hwctx;
 	struct dma_buf			*dma_buf;
@@ -89,15 +88,23 @@ u64 amdxdna_gem_dev_addr(struct amdxdna_gem_obj *abo);
 
 static inline u64 amdxdna_dev_bo_offset(struct amdxdna_gem_obj *abo)
 {
-	return amdxdna_gem_dev_addr(abo) - abo->client->xdna->dev_info->dev_mem_base;
+	return amdxdna_gem_dev_addr(abo) - to_xdna_dev(to_gobj(abo)->dev)->dev_info->dev_mem_base;
 }
 
 static inline u64 amdxdna_obj_dma_addr(struct amdxdna_gem_obj *abo)
 {
-	return amdxdna_pasid_on(abo->client) ? amdxdna_gem_uva(abo) : abo->mem.dma_addr;
+	/*
+	 * amdxdna_gem_obj_open() calls amdxdna_dma_map_bo() only when PASID is
+	 * off, leaving mem.dma_addr at AMDXDNA_INVALID_ADDR when PASID is on.
+	 * Avoid dereferencing abo->client, which is cleared to NULL by
+	 * amdxdna_gem_obj_close() while internal kernel references remain.
+	 */
+	return (abo->mem.dma_addr != AMDXDNA_INVALID_ADDR) ?
+		abo->mem.dma_addr : amdxdna_gem_uva(abo);
 }
 
 void amdxdna_umap_put(struct amdxdna_umap *mapp);
+void amdxdna_gem_heap_free(struct amdxdna_client *client, struct amdxdna_gem_obj *abo);
 
 struct drm_gem_object *
 amdxdna_gem_create_shmem_object_cb(struct drm_device *dev, size_t size);

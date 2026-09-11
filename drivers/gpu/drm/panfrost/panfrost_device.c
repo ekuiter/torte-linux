@@ -11,7 +11,6 @@
 
 #include "panfrost_device.h"
 #include "panfrost_devfreq.h"
-#include "panfrost_features.h"
 #include "panfrost_gem.h"
 #include "panfrost_issues.h"
 #include "panfrost_gpu.h"
@@ -218,7 +217,6 @@ int panfrost_device_init(struct panfrost_device *pfdev)
 	int err;
 
 	mutex_init(&pfdev->sched_lock);
-	INIT_LIST_HEAD(&pfdev->scheduled_jobs);
 	INIT_LIST_HEAD(&pfdev->as_lru_list);
 
 	spin_lock_init(&pfdev->as_lock);

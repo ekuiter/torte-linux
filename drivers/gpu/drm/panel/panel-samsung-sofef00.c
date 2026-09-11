@@ -175,8 +175,12 @@ static const struct drm_panel_funcs sofef00_panel_panel_funcs = {
 static int sofef00_panel_bl_update_status(struct backlight_device *bl)
 {
 	struct mipi_dsi_device *dsi = bl_get_data(bl);
+	struct sofef00_panel *ctx = mipi_dsi_get_drvdata(dsi);
 	int err;
 	u16 brightness = (u16)backlight_get_brightness(bl);
+
+	if (!ctx->panel.prepared)
+		return 0;
 
 	dsi->mode_flags &= ~MIPI_DSI_MODE_LPM;
 
@@ -246,28 +250,17 @@ static int sofef00_panel_probe(struct mipi_dsi_device *dsi)
 		return dev_err_probe(dev, PTR_ERR(ctx->panel.backlight),
 				     "Failed to create backlight\n");
 
-	drm_panel_add(&ctx->panel);
+	ret = devm_drm_panel_add(dev, &ctx->panel);
+	if (ret)
+		return ret;
 
-	ret = mipi_dsi_attach(dsi);
+	ret = devm_mipi_dsi_attach(dev, dsi);
 	if (ret < 0) {
 		dev_err(dev, "Failed to attach to DSI host: %d\n", ret);
-		drm_panel_remove(&ctx->panel);
 		return ret;
 	}
 
 	return 0;
-}
-
-static void sofef00_panel_remove(struct mipi_dsi_device *dsi)
-{
-	struct sofef00_panel *ctx = mipi_dsi_get_drvdata(dsi);
-	int ret;
-
-	ret = mipi_dsi_detach(dsi);
-	if (ret < 0)
-		dev_err(&dsi->dev, "Failed to detach from DSI host: %d\n", ret);
-
-	drm_panel_remove(&ctx->panel);
 }
 
 static const struct of_device_id sofef00_panel_of_match[] = {
@@ -279,7 +272,6 @@ MODULE_DEVICE_TABLE(of, sofef00_panel_of_match);
 
 static struct mipi_dsi_driver sofef00_panel_driver = {
 	.probe = sofef00_panel_probe,
-	.remove = sofef00_panel_remove,
 	.driver = {
 		.name = "panel-samsung-sofef00",
 		.of_match_table = sofef00_panel_of_match,

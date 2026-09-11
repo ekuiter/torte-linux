@@ -4,12 +4,12 @@
 #include <linux/err.h>
 #include <linux/errno.h>
 #include <linux/kernel.h>
-#include <linux/mod_devicetable.h>
 #include <linux/module.h>
 #include <linux/property.h>
 
 #include <drm/drm_mipi_dsi.h>
 #include <drm/drm_modes.h>
+#include <drm/drm_of.h>
 #include <drm/drm_panel.h>
 #include <drm/drm_probe_helper.h>
 
@@ -132,7 +132,7 @@ static int ili9806e_dsi_probe(struct mipi_dsi_device *dsi)
 	dsi->format = ctx->desc->format;
 	dsi->lanes = ctx->desc->lanes;
 
-	ret = of_drm_get_panel_orientation(dev->of_node, &ctx->orientation);
+	ret = drm_of_get_panel_orientation(dev->of_node, &ctx->orientation);
 	if (ret)
 		return dev_err_probe(dev, ret, "Failed to get orientation\n");
 
@@ -141,20 +141,7 @@ static int ili9806e_dsi_probe(struct mipi_dsi_device *dsi)
 	if (ret)
 		return ret;
 
-	ret = mipi_dsi_attach(dsi);
-	if (ret < 0) {
-		dev_err_probe(dev, ret, "Failed to attach to DSI host\n");
-		ili9806e_remove(dev);
-		return ret;
-	}
-
-	return 0;
-}
-
-static void ili9806e_dsi_remove(struct mipi_dsi_device *dsi)
-{
-	mipi_dsi_detach(dsi);
-	ili9806e_remove(&dsi->dev);
+	return devm_mipi_dsi_attach(dev, dsi);
 }
 
 static void com35h3p70ulc_init(struct mipi_dsi_multi_context *ctx)
@@ -490,7 +477,6 @@ static struct mipi_dsi_driver ili9806e_dsi_driver = {
 		.of_match_table = ili9806e_dsi_of_match,
 	},
 	.probe = ili9806e_dsi_probe,
-	.remove = ili9806e_dsi_remove,
 };
 module_mipi_dsi_driver(ili9806e_dsi_driver);
 

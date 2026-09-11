@@ -13,6 +13,7 @@
 #include <drm/drm_print.h>
 
 #include <linux/hashtable.h>
+#include <linux/llist.h>
 #include <linux/pci.h>
 #include <linux/xarray.h>
 #include <uapi/drm/ivpu_accel.h>
@@ -90,7 +91,7 @@
 	drm_warn(&(vdev)->drm, "%s(): " fmt, __func__, ##__VA_ARGS__)
 
 #define ivpu_warn_ratelimited(vdev, fmt, ...) \
-	drm_err_ratelimited(&(vdev)->drm, "%s(): " fmt, __func__, ##__VA_ARGS__)
+	drm_warn_ratelimited(&(vdev)->drm, "%s(): " fmt, __func__, ##__VA_ARGS__)
 
 #define ivpu_info(vdev, fmt, ...) drm_info(&(vdev)->drm, fmt, ##__VA_ARGS__)
 
@@ -157,9 +158,11 @@ struct ivpu_device {
 	struct xa_limit db_limit;
 	u32 db_next;
 
-	struct work_struct irq_ipc_work;
 	struct work_struct irq_dct_work;
 	struct work_struct context_abort_work;
+	struct llist_head job_destroy_list;
+	struct work_struct job_destroy_work;
+	struct workqueue_struct *job_destroy_wq;
 
 	struct mutex bo_list_lock; /* Protects bo_list */
 	struct list_head bo_list;

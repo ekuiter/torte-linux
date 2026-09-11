@@ -207,9 +207,6 @@ static struct xe_exec_queue *__xe_exec_queue_alloc(struct xe_device *xe,
 	struct xe_gt *gt = hwe->gt;
 	int err;
 
-	/* only kernel queues can be permanent */
-	XE_WARN_ON((flags & EXEC_QUEUE_FLAG_PERMANENT) && !(flags & EXEC_QUEUE_FLAG_KERNEL));
-
 	q = kzalloc_flex(*q, lrc, width);
 	if (!q)
 		return ERR_PTR(-ENOMEM);
@@ -530,10 +527,7 @@ struct xe_exec_queue *xe_exec_queue_create_bind(struct xe_device *xe,
 
 	migrate_vm = xe_migrate_get_vm(tile->migrate);
 	if (xe->info.has_usm) {
-		struct xe_hw_engine *hwe = xe_gt_hw_engine(gt,
-							   XE_ENGINE_CLASS_COPY,
-							   gt->usm.reserved_bcs_instance,
-							   false);
+		struct xe_hw_engine *hwe = gt->usm.paging_hwe0;
 
 		if (!hwe) {
 			xe_vm_put(migrate_vm);
@@ -805,6 +799,9 @@ static int exec_queue_set_hang_replay_state(struct xe_device *xe,
 	u64 __user *address = u64_to_user_ptr(value);
 	void *ptr;
 
+	if (q->replay_state)
+		return -EINVAL;
+
 	ptr = vmemdup_user(address, size);
 	if (XE_IOCTL_DBG(xe, IS_ERR(ptr)))
 		return PTR_ERR(ptr);
@@ -842,6 +839,7 @@ static int xe_exec_queue_group_init(struct xe_device *xe, struct xe_exec_queue *
 	group->primary = q;
 	group->cgp_bo = bo;
 	INIT_LIST_HEAD(&group->list);
+	spin_lock_init(&group->suspend_lock);
 	xa_init_flags(&group->xa, XA_FLAGS_ALLOC1);
 	mutex_init(&group->list_lock);
 	q->multi_queue.group = group;
@@ -1056,6 +1054,7 @@ int xe_exec_queue_set_property_ioctl(struct drm_device *dev, void *data,
 
 static int exec_queue_user_ext_check(struct xe_exec_queue *q, u64 properties)
 {
+	struct xe_device *xe = gt_to_xe(q->gt);
 	u64 secondary_queue_valid_props = BIT_ULL(DRM_XE_EXEC_QUEUE_SET_PROPERTY_MULTI_GROUP) |
 				  BIT_ULL(DRM_XE_EXEC_QUEUE_SET_PROPERTY_MULTI_QUEUE_PRIORITY);
 
@@ -1065,6 +1064,16 @@ static int exec_queue_user_ext_check(struct xe_exec_queue *q, u64 properties)
 	 */
 	if (xe_exec_queue_is_multi_queue_secondary(q) &&
 	    properties & ~secondary_queue_valid_props)
+		return -EINVAL;
+
+	/*
+	 * HWDRM is the only supported PXP type today. It is display related and
+	 * hence can't work with multi-queue. Reject the combination. The secondary
+	 * queue path above already rejects any PXP property, so this also covers
+	 * the multi-queue primary which would otherwise allow it.
+	 */
+	if (XE_IOCTL_DBG(xe, (properties & BIT_ULL(DRM_XE_EXEC_QUEUE_SET_PROPERTY_MULTI_GROUP)) &&
+			 (properties & BIT_ULL(DRM_XE_EXEC_QUEUE_SET_PROPERTY_PXP_TYPE))))
 		return -EINVAL;
 
 	return 0;
@@ -1107,6 +1116,9 @@ static int exec_queue_user_ext_set_property(struct xe_device *xe,
 
 	idx = array_index_nospec(ext.property, ARRAY_SIZE(exec_queue_set_property_funcs));
 	if (!exec_queue_set_property_funcs[idx])
+		return -EINVAL;
+
+	if (XE_IOCTL_DBG(xe, *properties & BIT_ULL(idx)))
 		return -EINVAL;
 
 	*properties |= BIT_ULL(idx);

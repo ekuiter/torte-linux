@@ -21,7 +21,6 @@
 #include <linux/delay.h>
 #include <linux/gpio/consumer.h>
 #include <linux/kthread.h>
-#include <linux/mod_devicetable.h>
 #include <linux/module.h>
 #include <linux/mutex.h>
 #include <linux/pwm.h>
@@ -346,7 +345,7 @@ static const struct drm_crtc_helper_funcs sharp_memory_crtc_helper_funcs = {
 };
 
 static const struct drm_crtc_funcs sharp_memory_crtc_funcs = {
-	.reset = drm_atomic_helper_crtc_reset,
+	.atomic_create_state = drm_atomic_helper_crtc_create_state,
 	.destroy = drm_crtc_cleanup,
 	.set_config = drm_atomic_helper_set_config,
 	.page_flip = drm_atomic_helper_page_flip,

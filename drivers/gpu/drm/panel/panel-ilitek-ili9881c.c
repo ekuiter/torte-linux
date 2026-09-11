@@ -16,6 +16,7 @@
 
 #include <drm/drm_mipi_dsi.h>
 #include <drm/drm_modes.h>
+#include <drm/drm_of.h>
 #include <drm/drm_panel.h>
 
 #include <video/mipi_display.h>
@@ -2562,16 +2563,19 @@ static int ili9881c_dsi_probe(struct mipi_dsi_device *dsi)
 				     "Couldn't get our power regulator\n");
 
 	ctx->iovcc = devm_regulator_get_optional(&dsi->dev, "iovcc");
-	if (IS_ERR(ctx->iovcc))
-		return dev_err_probe(&dsi->dev, PTR_ERR(ctx->iovcc),
+	if (IS_ERR(ctx->iovcc)) {
+		if (PTR_ERR(ctx->iovcc) != -ENODEV)
+			return dev_err_probe(&dsi->dev, PTR_ERR(ctx->iovcc),
 				     "Couldn't get our iovcc regulator\n");
+		ctx->iovcc = NULL;
+	}
 
 	ctx->reset = devm_gpiod_get_optional(&dsi->dev, "reset", GPIOD_OUT_LOW);
 	if (IS_ERR(ctx->reset))
 		return dev_err_probe(&dsi->dev, PTR_ERR(ctx->reset),
 				     "Couldn't get our reset GPIO\n");
 
-	ret = of_drm_get_panel_orientation(dsi->dev.of_node, &ctx->orientation);
+	ret = drm_of_get_panel_orientation(dsi->dev.of_node, &ctx->orientation);
 	if (ret) {
 		dev_err(&dsi->dev, "%pOF: failed to get orientation: %d\n",
 			dsi->dev.of_node, ret);
@@ -2590,21 +2594,15 @@ static int ili9881c_dsi_probe(struct mipi_dsi_device *dsi)
 	if (ret)
 		return ret;
 
-	drm_panel_add(&ctx->panel);
+	ret = devm_drm_panel_add(&dsi->dev, &ctx->panel);
+	if (ret)
+		return ret;
 
 	dsi->mode_flags = ctx->desc->mode_flags;
 	dsi->format = MIPI_DSI_FMT_RGB888;
 	dsi->lanes = ctx->desc->lanes;
 
-	return mipi_dsi_attach(dsi);
-}
-
-static void ili9881c_dsi_remove(struct mipi_dsi_device *dsi)
-{
-	struct ili9881c *ctx = mipi_dsi_get_drvdata(dsi);
-
-	mipi_dsi_detach(dsi);
-	drm_panel_remove(&ctx->panel);
+	return devm_mipi_dsi_attach(&dsi->dev, dsi);
 }
 
 static const struct ili9881c_desc lhr050h41_desc = {
@@ -2718,7 +2716,6 @@ MODULE_DEVICE_TABLE(of, ili9881c_of_match);
 
 static struct mipi_dsi_driver ili9881c_dsi_driver = {
 	.probe		= ili9881c_dsi_probe,
-	.remove		= ili9881c_dsi_remove,
 	.driver = {
 		.name		= "ili9881c-dsi",
 		.of_match_table	= ili9881c_of_match,

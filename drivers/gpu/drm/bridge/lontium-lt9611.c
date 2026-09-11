@@ -1026,7 +1026,7 @@ static const struct drm_bridge_funcs lt9611_bridge_funcs = {
 	.atomic_post_disable = lt9611_bridge_atomic_post_disable,
 	.atomic_duplicate_state = drm_atomic_helper_bridge_duplicate_state,
 	.atomic_destroy_state = drm_atomic_helper_bridge_destroy_state,
-	.atomic_reset = drm_atomic_helper_bridge_reset,
+	.atomic_create_state = drm_atomic_helper_bridge_create_state,
 	.atomic_get_input_bus_fmts = lt9611_atomic_get_input_bus_fmts,
 
 	.hdmi_tmds_char_rate_valid = lt9611_hdmi_tmds_char_rate_valid,
@@ -1156,10 +1156,8 @@ static int lt9611_probe(struct i2c_client *client)
 	ret = devm_request_threaded_irq(dev, client->irq, NULL,
 					lt9611_irq_thread_handler,
 					IRQF_ONESHOT, "lt9611", lt9611);
-	if (ret) {
-		dev_err(dev, "failed to request irq\n");
+	if (ret)
 		goto err_disable_regulators;
-	}
 
 	i2c_set_clientdata(client, lt9611);
 
@@ -1229,8 +1227,8 @@ static void lt9611_remove(struct i2c_client *client)
 }
 
 static const struct i2c_device_id lt9611_id[] = {
-	{ "lontium,lt9611" },
-	{}
+	{ .name = "lt9611" },
+	{ }
 };
 MODULE_DEVICE_TABLE(i2c, lt9611_id);
 

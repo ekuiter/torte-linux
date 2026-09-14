@@ -1294,7 +1294,6 @@ xfs_calc_namespace_reservations(
 
 STATIC void
 xfs_calc_default_atomic_ioend_reservation(
-	struct xfs_mount	*mp,
 	struct xfs_trans_resv	*resp)
 {
 	/* Pick a default that will scale reasonably for the log size. */
@@ -1400,7 +1399,7 @@ xfs_trans_resv_calc(
 	 * Now that we've finished computing the static reservations, we can
 	 * compute the dynamic reservation for atomic writes.
 	 */
-	xfs_calc_default_atomic_ioend_reservation(mp, resp);
+	xfs_calc_default_atomic_ioend_reservation(resp);
 }
 
 /*
@@ -1510,7 +1509,7 @@ xfs_calc_atomic_write_log_geometry(
 
 	ASSERT(blockcount > 0);
 
-	xfs_calc_default_atomic_ioend_reservation(mp, M_RES(mp));
+	xfs_calc_default_atomic_ioend_reservation(M_RES(mp));
 
 	per_intent = xfs_calc_atomic_write_ioend_geometry(mp, &step_size);
 
@@ -1547,7 +1546,7 @@ xfs_calc_atomic_write_reservation(
 	 * use the defaults.
 	 */
 	if (blockcount == 0) {
-		xfs_calc_default_atomic_ioend_reservation(mp, M_RES(mp));
+		xfs_calc_default_atomic_ioend_reservation(M_RES(mp));
 		return 0;
 	}
 

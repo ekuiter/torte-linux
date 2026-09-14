@@ -1429,7 +1429,7 @@ xrep_dinode_ensure_forkoff(
 			break;
 		case XFS_METAFILE_RTREFCOUNT:
 			rcdr = XFS_DFORK_PTR(dip, XFS_DATA_FORK);
-			dfork_min = xfs_rtrefcount_broot_space(sc->mp, rcdr);
+			dfork_min = xfs_rtrefcount_broot_space(rcdr);
 			break;
 		default:
 			dfork_min = 0;

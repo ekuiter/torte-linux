@@ -307,7 +307,14 @@ int nvme_mpath_revalidate_zones(struct nvme_ns_head *head)
 }
 #endif /* CONFIG_BLK_DEV_ZONED */
 
-static bool nvme_path_is_disabled(struct nvme_ns *ns)
+enum nvme_path_state {
+	NVME_PATH_ENABLED,
+	NVME_PATH_DISABLED_CTRL_DOWN,
+	NVME_PATH_DISABLED_ANA_PENDING,
+	NVME_PATH_DISABLED_NS_NOT_READY,
+};
+
+static enum nvme_path_state nvme_path_get_state(struct nvme_ns *ns)
 {
 	enum nvme_ctrl_state state = nvme_ctrl_state(ns->ctrl);
 
@@ -317,11 +324,17 @@ static bool nvme_path_is_disabled(struct nvme_ns *ns)
 	 * Otherwise it will fail immediately and return to the requeue list.
 	 */
 	if (state != NVME_CTRL_LIVE && state != NVME_CTRL_DELETING)
-		return true;
-	if (test_bit(NVME_NS_ANA_PENDING, &ns->flags) ||
-	    !test_bit(NVME_NS_READY, &ns->flags))
-		return true;
-	return false;
+		return NVME_PATH_DISABLED_CTRL_DOWN;
+	if (test_bit(NVME_NS_ANA_PENDING, &ns->flags))
+		return NVME_PATH_DISABLED_ANA_PENDING;
+	if (!test_bit(NVME_NS_READY, &ns->flags))
+		return NVME_PATH_DISABLED_NS_NOT_READY;
+	return NVME_PATH_ENABLED;
+}
+
+static bool nvme_path_is_disabled(struct nvme_ns *ns)
+{
+	return nvme_path_get_state(ns) != NVME_PATH_ENABLED;
 }
 
 static struct nvme_ns *__nvme_find_path(struct nvme_ns_head *head, int node)
@@ -1112,6 +1125,28 @@ static ssize_t queue_depth_show(struct device *dev,
 	return sysfs_emit(buf, "%d\n", atomic_read(&ns->ctrl->nr_active));
 }
 DEVICE_ATTR_RO(queue_depth);
+
+static const char * const nvme_path_state_names[] = {
+	[NVME_PATH_ENABLED]			= "enabled",
+	[NVME_PATH_DISABLED_CTRL_DOWN]		= "ctrl-down",
+	[NVME_PATH_DISABLED_ANA_PENDING]	= "ana-pending",
+	[NVME_PATH_DISABLED_NS_NOT_READY]	= "ns-not-ready",
+};
+
+static ssize_t path_state_show(struct device *dev,
+		struct device_attribute *attr, char *buf)
+{
+	struct nvme_ns *ns = nvme_get_ns_from_dev(dev);
+	enum nvme_path_state state = nvme_path_get_state(ns);
+	const char *name = "unknown";
+
+	if (state < ARRAY_SIZE(nvme_path_state_names) &&
+	    nvme_path_state_names[state])
+		name = nvme_path_state_names[state];
+
+	return sysfs_emit(buf, "%s\n", name);
+}
+DEVICE_ATTR_RO(path_state);
 
 static ssize_t numa_nodes_show(struct device *dev, struct device_attribute *attr,
 		char *buf)

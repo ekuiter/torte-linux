@@ -326,6 +326,27 @@ Description:
 		currently selected path. Returns empty if iopolicy is not
 		"numa". Requires CONFIG_NVME_MULTIPATH.
 
+What:		/sys/block/nvmeXcYnZ/path_state
+Date:		September 2026
+KernelVersion:	7.4
+Contact:	Guixin Liu <kanie@linux.alibaba.com>
+Description:
+		Shows the current multipath path state for this namespace
+		path device. Possible values:
+
+		"enabled": the path is usable for I/O.
+
+		"ctrl-down": the path is disabled because the controller
+		is not live.
+
+		"ana-pending": the path is disabled because an ANA state
+		change is pending.
+
+		"ns-not-ready": the path is disabled because the namespace
+		is not ready.
+
+		Requires CONFIG_NVME_MULTIPATH.
+
 What:		/sys/block/nvmeXnY/delayed_removal_secs
 Date:		May 2025
 KernelVersion:	6.16

@@ -1098,6 +1098,21 @@ static ssize_t nvme_subsys_iopolicy_store(struct device *dev,
 SUBSYS_ATTR_RW(iopolicy, S_IRUGO | S_IWUSR,
 		      nvme_subsys_iopolicy_show, nvme_subsys_iopolicy_store);
 
+static ssize_t iopolicies_show(struct device *dev,
+			       struct device_attribute *attr, char *buf)
+{
+	int i, len = 0;
+
+	for (i = 0; i < ARRAY_SIZE(nvme_iopolicy_names); i++)
+		len += sysfs_emit_at(buf, len, "%s%s", i ? " " : "",
+				     nvme_iopolicy_names[i]);
+
+	len += sysfs_emit_at(buf, len, "\n");
+	return len;
+}
+
+struct device_attribute subsys_attr_iopolicies = __ATTR_RO(iopolicies);
+
 static ssize_t ana_grpid_show(struct device *dev, struct device_attribute *attr,
 		char *buf)
 {

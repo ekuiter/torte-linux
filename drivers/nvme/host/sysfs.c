@@ -1300,6 +1300,7 @@ static struct attribute *nvme_subsys_attrs[] = {
 	&subsys_attr_subsystype.attr,
 #ifdef CONFIG_NVME_MULTIPATH
 	&subsys_attr_iopolicy.attr,
+	&subsys_attr_iopolicies.attr,
 #endif
 	NULL,
 };

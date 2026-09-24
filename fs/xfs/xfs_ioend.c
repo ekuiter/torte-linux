@@ -175,15 +175,7 @@ xfs_end_ioend_write(
 	bool			is_zoned = xfs_is_zoned_inode(ip);
 	xfs_off_t		offset = ioend->io_offset;
 	size_t			size = ioend->io_size;
-	unsigned int		nofs_flag;
 	int			error;
-
-	/*
-	 * We can allocate memory here while doing writeback on behalf of
-	 * memory reclaim.  To avoid memory allocation deadlocks set the
-	 * task-wide nofs context for the following operations.
-	 */
-	nofs_flag = memalloc_nofs_save();
 
 	/*
 	 * Just clean up the in-memory structures if the fs has been shut down.
@@ -241,7 +233,6 @@ done:
 	if (is_zoned)
 		xfs_ioend_put_open_zones(ioend);
 	iomap_finish_ioends(ioend, error);
-	memalloc_nofs_restore(nofs_flag);
 }
 
 /*
@@ -266,6 +257,7 @@ xfs_end_io(
 		container_of(work, struct xfs_inode, i_ioend_work);
 	struct iomap_ioend	*ioend;
 	struct list_head	tmp;
+	unsigned int		nofs_flag;
 	unsigned long		flags;
 
 	spin_lock_irqsave(&ip->i_ioend_lock, flags);
@@ -273,6 +265,13 @@ xfs_end_io(
 	spin_unlock_irqrestore(&ip->i_ioend_lock, flags);
 
 	iomap_sort_ioends(&tmp);
+
+	/*
+	 * We can allocate memory here while doing writeback on behalf of
+	 * memory reclaim.  To avoid memory allocation deadlocks set the
+	 * task-wide nofs context for the following operations.
+	 */
+	nofs_flag = memalloc_nofs_save();
 	while ((ioend = list_first_entry_or_null(&tmp, struct iomap_ioend,
 			io_list))) {
 		list_del_init(&ioend->io_list);
@@ -280,6 +279,7 @@ xfs_end_io(
 		xfs_end_ioend_write(ioend);
 		cond_resched();
 	}
+	memalloc_nofs_restore(nofs_flag);
 }
 
 void

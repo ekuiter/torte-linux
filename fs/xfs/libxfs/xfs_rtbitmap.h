@@ -408,6 +408,9 @@ xfs_filblks_t xfs_rtsummary_blockcount(struct xfs_mount *mp,
 
 const struct xfs_buf_ops *xfs_rtblock_ops(struct xfs_mount *mp,
 		enum xfs_rtg_inodes type);
+void xfs_rtfile_initialize_buf(struct xfs_rtgroup *rtg,
+		enum xfs_rtg_inodes type, struct xfs_buf *bp,
+		struct xfs_trans *tp);
 int xfs_rtfile_initialize_blocks(struct xfs_rtgroup *rtg,
 		enum xfs_rtg_inodes type, xfs_fileoff_t offset_fsb,
 		xfs_fileoff_t end_fsb, void *data);

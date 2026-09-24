@@ -1378,6 +1378,27 @@ out_trans_cancel:
 	return error;
 }
 
+void
+xfs_rtfile_initialize_buf(
+	struct xfs_rtgroup	*rtg,
+	enum xfs_rtg_inodes	type,
+	struct xfs_buf		*bp,
+	struct xfs_trans	*tp)
+{
+	bp->b_ops = xfs_rtblock_ops(bp->b_mount, type);
+	if (tp)
+		xfs_trans_buf_set_type(tp, bp, xfs_rtblock_buf_types[type]);
+	if (xfs_has_rtgroups(bp->b_mount)) {
+		struct xfs_rtbuf_blkinfo	*hdr = bp->b_addr;
+
+		hdr->rt_magic = bp->b_ops->magic[1];
+		hdr->rt_owner = cpu_to_be64(I_INO(rtg->rtg_inodes[type]));
+		hdr->rt_blkno = cpu_to_be64(xfs_buf_daddr(bp));
+		hdr->rt_lsn = 0;
+		uuid_copy(&hdr->rt_uuid, &bp->b_mount->m_sb.sb_meta_uuid);
+	}
+}
+
 /* Get a buffer for the block. */
 static int
 xfs_rtfile_initialize_block(
@@ -1408,21 +1429,10 @@ xfs_rtfile_initialize_block(
 	}
 	bufdata = bp->b_addr;
 
-	xfs_trans_buf_set_type(tp, bp, xfs_rtblock_buf_types[type]);
-	bp->b_ops = xfs_rtblock_ops(mp, type);
+	xfs_rtfile_initialize_buf(rtg, type, bp, tp);
 
-	if (xfs_has_rtgroups(mp)) {
-		struct xfs_rtbuf_blkinfo	*hdr = bp->b_addr;
-
-		hdr->rt_magic = bp->b_ops->magic[1];
-		hdr->rt_owner = cpu_to_be64(I_INO(ip));
-		hdr->rt_blkno = cpu_to_be64(XFS_FSB_TO_DADDR(mp, fsbno));
-		hdr->rt_lsn = 0;
-		uuid_copy(&hdr->rt_uuid, &mp->m_sb.sb_meta_uuid);
-
-		bufdata += sizeof(*hdr);
-	}
-
+	if (xfs_has_rtgroups(mp))
+		bufdata += sizeof(struct xfs_rtbuf_blkinfo);
 	if (data)
 		memcpy(bufdata, data, copylen);
 	else

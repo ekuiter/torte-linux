@@ -229,8 +229,10 @@ xfs_verify_media_error(
 	struct xfs_buftarg	*btp,
 	xfs_daddr_t		daddr,
 	unsigned int		bio_bbcount,
-	blk_status_t		bio_status)
+	int			error)
 {
+	blk_status_t		bio_status = errno_to_blk_status(error);
+
 	trace_xfs_verify_media_error(mp, me, btp->bt_dev, daddr, bio_bbcount,
 			bio_status);
 
@@ -239,7 +241,7 @@ xfs_verify_media_error(
 	 * successfully verify any bytes at all.
 	 */
 	if (me->me_start_daddr == daddr)
-		me->me_ioerror = -blk_status_to_errno(bio_status);
+		me->me_ioerror = -error;
 
 	/*
 	 * PI validation failures, medium errors, or general IO errors are
@@ -266,7 +268,6 @@ xfs_verify_media(
 	struct xfs_verify_media	*me)
 {
 	struct xfs_buftarg	*btp = NULL;
-	struct bio		*bio;
 	struct folio		*folio;
 	xfs_daddr_t		dev_start = 0;
 	xfs_daddr_t		dev_end = 0;
@@ -342,33 +343,16 @@ xfs_verify_media(
 
 	trace_xfs_verify_media(mp, me, btp->bt_dev, daddr, bbcount, folio);
 
-	bio = bio_alloc(btp->bt_bdev, 1, REQ_OP_READ, GFP_KERNEL);
-	if (!bio) {
-		error = -ENOMEM;
-		goto out_folio;
-	}
-
-	while (bbcount > 0) {
+	for (;;) {
 		unsigned int	bio_bbcount;
-		blk_status_t	bio_status;
 
-		bio_reset(bio, btp->bt_bdev, REQ_OP_READ);
-		bio->bi_iter.bi_sector = daddr;
-		bio_add_folio_nofail(bio, folio,
-				min(bbcount << SECTOR_SHIFT, folio_size(folio)),
-				0);
-
-		/*
-		 * Save the length of the bio before we submit it, because we
-		 * need the original daddr and length for reporting IO errors
-		 * if the bio fails.
-		 */
-		bio_bbcount = bio->bi_iter.bi_size >> SECTOR_SHIFT;
-		submit_bio_wait(bio);
-		bio_status = bio->bi_status;
-		if (bio_status != BLK_STS_OK) {
+		bio_bbcount = min(bbcount, folio_size(folio) >> SECTOR_SHIFT);
+		error = bdev_rw_virt(btp->bt_bdev, daddr, folio_address(folio),
+				bio_bbcount << SECTOR_SHIFT,
+				REQ_OP_READ);
+		if (error) {
 			xfs_verify_media_error(mp, me, btp, daddr, bio_bbcount,
-					bio_status);
+					error);
 			error = 0;
 			break;
 		}
@@ -396,10 +380,7 @@ xfs_verify_media(
 		cond_resched();
 	}
 
-	bio_put(bio);
-out_folio:
 	folio_put(folio);
-
 	if (error)
 		return error;
 

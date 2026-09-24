@@ -20,6 +20,16 @@ struct xfs_rtalloc_args {
 	xfs_fileoff_t		sumoff;	/* summary block number */
 };
 
+/* Return the payload of the buffer after the optional header. */
+static inline void *
+xfs_rtblock_payload(
+	struct xfs_buf		*bp)
+{
+	if (!xfs_has_rtgroups(bp->b_mount))
+		return bp->b_addr;
+	return bp->b_addr + sizeof(struct xfs_rtbuf_blkinfo);
+}
+
 static inline xfs_rtblock_t
 xfs_rtx_to_rtb(
 	struct xfs_rtgroup	*rtg,
@@ -221,14 +231,7 @@ xfs_rbmblock_wordptr(
 	struct xfs_rtalloc_args	*args,
 	unsigned int		index)
 {
-	struct xfs_mount	*mp = args->mp;
-	union xfs_rtword_raw	*words;
-	struct xfs_rtbuf_blkinfo *hdr = args->rbmbp->b_addr;
-
-	if (xfs_has_rtgroups(mp))
-		words = (union xfs_rtword_raw *)(hdr + 1);
-	else
-		words = args->rbmbp->b_addr;
+	union xfs_rtword_raw	*words = xfs_rtblock_payload(args->rbmbp);
 
 	return words + index;
 }
@@ -312,13 +315,7 @@ xfs_rsumblock_infoptr(
 	struct xfs_rtalloc_args	*args,
 	unsigned int		index)
 {
-	union xfs_suminfo_raw	*info;
-	struct xfs_rtbuf_blkinfo *hdr = args->sumbp->b_addr;
-
-	if (xfs_has_rtgroups(args->mp))
-		info = (union xfs_suminfo_raw *)(hdr + 1);
-	else
-		info = args->sumbp->b_addr;
+	union xfs_suminfo_raw	*info = xfs_rtblock_payload(args->sumbp);
 
 	return info + index;
 }

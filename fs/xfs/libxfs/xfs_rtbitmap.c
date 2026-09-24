@@ -1411,7 +1411,6 @@ xfs_rtfile_initialize_block(
 	struct xfs_inode	*ip = rtg->rtg_inodes[type];
 	struct xfs_trans	*tp;
 	struct xfs_buf		*bp;
-	void			*bufdata;
 	const size_t		copylen = mp->m_blockwsize << XFS_WORDLOG;
 	int			error;
 
@@ -1427,16 +1426,12 @@ xfs_rtfile_initialize_block(
 		xfs_trans_cancel(tp);
 		return error;
 	}
-	bufdata = bp->b_addr;
 
 	xfs_rtfile_initialize_buf(rtg, type, bp, tp);
-
-	if (xfs_has_rtgroups(mp))
-		bufdata += sizeof(struct xfs_rtbuf_blkinfo);
 	if (data)
-		memcpy(bufdata, data, copylen);
+		memcpy(xfs_rtblock_payload(bp), data, copylen);
 	else
-		memset(bufdata, 0, copylen);
+		memset(xfs_rtblock_payload(bp), 0, copylen);
 	xfs_trans_log_buf(tp, bp, 0, mp->m_sb.sb_blocksize - 1);
 	return xfs_trans_commit(tp);
 }

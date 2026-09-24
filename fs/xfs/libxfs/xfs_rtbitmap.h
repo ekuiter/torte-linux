@@ -354,19 +354,6 @@ xfs_suminfo_add(
 	return info->old;
 }
 
-static inline const struct xfs_buf_ops *
-xfs_rtblock_ops(
-	struct xfs_mount	*mp,
-	enum xfs_rtg_inodes	type)
-{
-	if (xfs_has_rtgroups(mp)) {
-		if (type == XFS_RTGI_SUMMARY)
-			return &xfs_rtsummary_buf_ops;
-		return &xfs_rtbitmap_buf_ops;
-	}
-	return &xfs_rtbuf_ops;
-}
-
 /*
  * Functions for walking free space rtextents in the realtime bitmap.
  */
@@ -419,6 +406,8 @@ xfs_filblks_t xfs_rtbitmap_blockcount_len(struct xfs_mount *mp,
 xfs_filblks_t xfs_rtsummary_blockcount(struct xfs_mount *mp,
 		unsigned int *rsumlevels);
 
+const struct xfs_buf_ops *xfs_rtblock_ops(struct xfs_mount *mp,
+		enum xfs_rtg_inodes type);
 int xfs_rtfile_initialize_blocks(struct xfs_rtgroup *rtg,
 		enum xfs_rtg_inodes type, xfs_fileoff_t offset_fsb,
 		xfs_fileoff_t end_fsb, void *data);

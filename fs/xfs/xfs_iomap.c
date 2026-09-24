@@ -1613,8 +1613,8 @@ xfs_zoned_fill_srcmap(
 	/*
 	 * There is a data fork mapping, only map until the end of it.
 	 */
-	*end_fsb = min(*end_fsb, smap.br_startoff + smap.br_blockcount);
 	xfs_trim_extent(&smap, offset_fsb, *end_fsb - offset_fsb);
+	*end_fsb = min(*end_fsb, smap.br_startoff + smap.br_blockcount);
 	return xfs_bmbt_to_iomap(ip, srcmap, &smap, flags, 0,
 			xfs_iomap_inode_sequence(ip, 0));
 }

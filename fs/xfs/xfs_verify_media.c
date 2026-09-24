@@ -84,11 +84,14 @@ out_rele:
 	return 0;
 }
 
-/* Walk reverse mappings to look for all file data loss */
-static int
+/*
+ * Report data loss on the physical sectors, and if possible, walk the reverse
+ * mappings to also report the loss to the files mapped to these sectors.
+ */
+static void
 xfs_verify_report_losses(
 	struct xfs_mount	*mp,
-	enum xfs_group_type	type,
+	enum xfs_device		dev,
 	xfs_daddr_t		daddr,
 	u64			bblen)
 {
@@ -97,13 +100,25 @@ xfs_verify_report_losses(
 	xfs_fsblock_t		start_bno, end_bno;
 	uint32_t		start_gno, end_gno;
 	int			error;
+	enum xfs_group_type	type;
 
-	if (type == XG_TYPE_RTG) {
+	xfs_healthmon_report_media(mp, dev, daddr, bblen);
+	if (!xfs_has_rmapbt(mp))
+		return;
+
+	switch (dev) {
+	case XFS_DEV_RT:
 		start_bno = xfs_daddr_to_rtb(mp, daddr);
 		end_bno = xfs_daddr_to_rtb(mp, daddr + bblen - 1);
-	} else {
+		type = XG_TYPE_RTG;
+		break;
+	case XFS_DEV_DATA:
 		start_bno = XFS_DADDR_TO_FSB(mp, daddr);
 		end_bno = XFS_DADDR_TO_FSB(mp, daddr + bblen - 1);
+		type = XG_TYPE_AG;
+		break;
+	default:
+		return;
 	}
 
 	tp = xfs_trans_alloc_empty(mp);
@@ -164,7 +179,6 @@ xfs_verify_report_losses(
 	}
 
 	xfs_trans_cancel(tp);
-	return 0;
 }
 
 /*
@@ -236,25 +250,11 @@ xfs_verify_media_error(
 	case BLK_STS_PROTECTION:
 	case BLK_STS_IOERR:
 	case BLK_STS_MEDIUM:
+		if (me->me_flags & XFS_VERIFY_MEDIA_REPORT)
+			xfs_verify_report_losses(mp, me->me_dev, daddr,
+					bio_bbcount);
 		break;
 	default:
-		return;
-	}
-
-	if (!(me->me_flags & XFS_VERIFY_MEDIA_REPORT))
-		return;
-
-	xfs_healthmon_report_media(mp, me->me_dev, daddr, bio_bbcount);
-
-	if (!xfs_has_rmapbt(mp))
-		return;
-
-	switch (me->me_dev) {
-	case XFS_DEV_DATA:
-		xfs_verify_report_losses(mp, XG_TYPE_AG, daddr, bio_bbcount);
-		break;
-	case XFS_DEV_RT:
-		xfs_verify_report_losses(mp, XG_TYPE_RTG, daddr, bio_bbcount);
 		break;
 	}
 }

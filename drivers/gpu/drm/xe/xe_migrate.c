@@ -23,6 +23,7 @@
 #include "xe_assert.h"
 #include "xe_bb.h"
 #include "xe_bo.h"
+#include "xe_configfs.h"
 #include "xe_exec_queue.h"
 #include "xe_ggtt.h"
 #include "xe_gt.h"
@@ -81,13 +82,16 @@ struct xe_migrate {
 	u64 min_chunk_size;
 	/** @ulls: ULLS support */
 	struct {
+		/** @ulls.exit_ms: ULLS exit period milliseconds */
+		u32 exit_ms;
 		/** @ulls.enabled: ULLS is enabled, protected by job_mutex */
 		bool enabled;
-#define ULLS_EXIT_JIFFIES	msecs_to_jiffies(5)
 		/** @ulls.exit_work: ULLS exit worker */
 		struct delayed_work exit_work;
 	} ulls;
 };
+
+#define ULLS_EXIT_JIFFIES(_m)	msecs_to_jiffies((_m)->ulls.exit_ms)
 
 #define MAX_PREEMPTDISABLE_TRANSFER SZ_8M /* Around 1ms. */
 #define MAX_CCS_LIMITED_TRANSFER SZ_4M /* XE_PAGE_SIZE * (FIELD_MAX(XE2_CCS_SIZE_MASK) + 1) */
@@ -512,7 +516,7 @@ static struct dma_fence *xe_migrate_job_push(struct xe_migrate *m,
 	if (xe_migrate_ulls_enabled(m)) {
 		ulls = ULLS_ACTIVE;
 		mod_delayed_work(system_percpu_wq, &m->ulls.exit_work,
-				 ULLS_EXIT_JIFFIES);
+				 ULLS_EXIT_JIFFIES(m));
 	}
 
 	return __xe_migrate_job_push(m, job, ulls);
@@ -534,7 +538,7 @@ void xe_migrate_ulls_enter(struct xe_migrate *m)
 
 	xe_assert(xe, xe->info.has_usm);
 
-	if (!IS_DGFX(xe))
+	if (!IS_DGFX(xe) || !m->ulls.exit_ms)
 		return;
 
 job_alloc:
@@ -572,7 +576,7 @@ job_alloc:
 		xe_sched_job_put(job);
 	if (xe_migrate_ulls_enabled(m))
 		mod_delayed_work(system_percpu_wq, &m->ulls.exit_work,
-				 ULLS_EXIT_JIFFIES);
+				 ULLS_EXIT_JIFFIES(m));
 	mutex_unlock(&m->job_mutex);
 }
 
@@ -599,7 +603,7 @@ static void xe_migrate_ulls_exit(struct work_struct *work)
 	if (WARN_ON_ONCE(IS_ERR(job))) {
 		drm_dev_exit(idx);
 		mod_delayed_work(system_percpu_wq, &m->ulls.exit_work,
-				 ULLS_EXIT_JIFFIES);
+				 ULLS_EXIT_JIFFIES(m));
 		return;		/* Not fatal */
 	}
 
@@ -616,7 +620,7 @@ static void xe_migrate_ulls_exit(struct work_struct *work)
 		} else {
 			xe_sched_job_put(job);
 			mod_delayed_work(system_percpu_wq, &m->ulls.exit_work,
-					 ULLS_EXIT_JIFFIES);
+					 ULLS_EXIT_JIFFIES(m));
 		}
 	}
 
@@ -699,6 +703,9 @@ int xe_migrate_init(struct xe_migrate *m)
 		drm_dbg(&xe->drm, "Migrate min chunk size is 0x%08llx\n",
 			(unsigned long long)m->min_chunk_size);
 	}
+
+	m->ulls.exit_ms =
+		xe_configfs_get_migrate_ulls_period_ms(to_pci_dev(xe->drm.dev));
 
 	return err;
 

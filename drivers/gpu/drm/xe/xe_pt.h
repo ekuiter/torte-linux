@@ -39,11 +39,11 @@ void xe_pt_destroy(struct xe_pt *pt, u32 flags, struct llist_head *deferred);
 
 void xe_pt_clear(struct xe_device *xe, struct xe_pt *pt);
 
-int xe_pt_update_ops_prepare(struct xe_tile *tile, struct xe_vma_ops *vops);
-struct dma_fence *xe_pt_update_ops_run(struct xe_tile *tile,
+int xe_pt_update_ops_prepare(struct xe_device *xe, struct xe_vma_ops *vops);
+struct dma_fence *xe_pt_update_ops_run(struct xe_device *xe,
 				       struct xe_vma_ops *vops);
-void xe_pt_update_ops_fini(struct xe_tile *tile, struct xe_vma_ops *vops);
-void xe_pt_update_ops_abort(struct xe_tile *tile, struct xe_vma_ops *vops);
+void xe_pt_update_ops_fini(struct xe_device *xe, struct xe_vma_ops *vops);
+void xe_pt_update_ops_abort(struct xe_device *xe, struct xe_vma_ops *vops);
 
 bool xe_pt_zap_ptes(struct xe_tile *tile, struct xe_vma *vma);
 bool xe_pt_zap_ptes_range(struct xe_tile *tile, struct xe_vm *vm,

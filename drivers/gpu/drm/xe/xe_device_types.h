@@ -38,6 +38,7 @@
 struct drm_pagemap_shrinker;
 struct intel_display;
 struct intel_dg_nvm_dev;
+struct xe_cpu_bind;
 struct xe_ggtt;
 struct xe_i2c;
 struct xe_mmio_gem;
@@ -563,6 +564,9 @@ struct xe_device {
 
 	/** @sc: System Controller */
 	struct xe_sysctrl sc;
+
+	/** @cpu_bind: CPU bind object */
+	struct xe_cpu_bind *cpu_bind;
 
 	/** @atomic_svm_timeslice_ms: Atomic SVM fault timeslice MS */
 	u32 atomic_svm_timeslice_ms;

@@ -73,8 +73,9 @@ static void job_free(struct xe_sched_job *job)
 	struct xe_exec_queue *q = job->q;
 	bool is_migration = xe_sched_job_is_migration(q);
 
-	kmem_cache_free(xe_exec_queue_is_parallel(job->q) || is_migration ?
-			xe_sched_job_parallel_slab : xe_sched_job_slab, job);
+	kmem_cache_free(job->is_pt_job || xe_exec_queue_is_parallel(job->q) ||
+			is_migration ? xe_sched_job_parallel_slab :
+			xe_sched_job_slab, job);
 }
 
 static struct xe_device *job_to_xe(struct xe_sched_job *job)
@@ -127,10 +128,12 @@ struct xe_sched_job *xe_sched_job_create(struct xe_exec_queue *q,
 	xe_assert(xe, batch_addr ||
 		  q->flags & (EXEC_QUEUE_FLAG_VM | EXEC_QUEUE_FLAG_MIGRATE));
 
-	job = job_alloc(xe_exec_queue_is_parallel(q) || is_migration);
+	job = job_alloc(!batch_addr || xe_exec_queue_is_parallel(q) ||
+			is_migration);
 	if (!job)
 		return ERR_PTR(-ENOMEM);
 
+	job->is_pt_job = !batch_addr;
 	job->q = q;
 	job->sample_timestamp = U64_MAX;
 	kref_init(&job->refcount);
@@ -143,7 +146,6 @@ struct xe_sched_job *xe_sched_job_create(struct xe_exec_queue *q,
 
 	if (!batch_addr) {
 		job->fence = dma_fence_get_stub();
-		job->is_pt_job = true;
 	} else {
 		for (i = 0; i < q->width; ++i) {
 			struct dma_fence *fence = xe_lrc_alloc_seqno_fence();

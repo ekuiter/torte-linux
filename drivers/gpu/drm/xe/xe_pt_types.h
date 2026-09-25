@@ -120,8 +120,6 @@ struct xe_pt_job_ops {
 struct xe_vm_pgtable_update_ops {
 	/** @pt_job_ops: PT update operations dynamic allocation*/
 	struct xe_pt_job_ops *pt_job_ops;
-	/** @q: exec queue for PT operations */
-	struct xe_exec_queue *q;
 	/** @prl: embedded page reclaim list */
 	struct xe_page_reclaim_list prl;
 	/** @start: start address of ops */
@@ -134,18 +132,6 @@ struct xe_vm_pgtable_update_ops {
 	bool needs_svm_lock;
 	/** @needs_invalidation: Needs invalidation */
 	bool needs_invalidation;
-	/**
-	 * @wait_vm_bookkeep: PT operations need to wait until VM is idle
-	 * (bookkeep dma-resv slots are idle) and stage all future VM activity
-	 * behind these operations (install PT operations into VM kernel
-	 * dma-resv slot).
-	 */
-	bool wait_vm_bookkeep;
-	/**
-	 * @wait_vm_kernel: PT operations need to wait until VM kernel dma-resv
-	 * slots are idle.
-	 */
-	bool wait_vm_kernel;
 };
 
 #endif

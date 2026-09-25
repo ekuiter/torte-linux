@@ -51,8 +51,6 @@
 struct xe_migrate {
 	/** @q: Default exec queue used for migration */
 	struct xe_exec_queue *q;
-	/** @bind_q: Default exec queue used for binds */
-	struct xe_exec_queue *bind_q;
 	/** @tile: Backpointer to the tile this struct xe_migrate belongs to. */
 	struct xe_tile *tile;
 	/** @job_mutex: Timeline mutex for @eng. */
@@ -110,7 +108,6 @@ static void xe_migrate_fini(void *arg)
 	mutex_destroy(&m->job_mutex);
 	xe_vm_close_and_put(m->q->vm);
 	xe_exec_queue_put(m->q);
-	xe_exec_queue_put(m->bind_q);
 }
 
 static inline u16 xe_migrate_pat_index(struct xe_device *xe,
@@ -483,15 +480,6 @@ int xe_migrate_init(struct xe_migrate *m)
 			goto err_out;
 		}
 
-		m->bind_q = xe_exec_queue_create(xe, vm, logical_mask, 1, hwe0,
-						 EXEC_QUEUE_FLAG_KERNEL |
-						 EXEC_QUEUE_FLAG_HIGH_PRIORITY |
-						 EXEC_QUEUE_FLAG_MIGRATE, 0);
-		if (IS_ERR(m->bind_q)) {
-			err = PTR_ERR(m->bind_q);
-			goto err_out;
-		}
-
 		/*
 		 * XXX: Currently only reserving 1 (likely slow) BCS instance on
 		 * PVC, may want to revisit if performance is needed.
@@ -502,15 +490,6 @@ int xe_migrate_init(struct xe_migrate *m)
 					    EXEC_QUEUE_FLAG_MIGRATE |
 					    EXEC_QUEUE_FLAG_LOW_LATENCY, 0);
 	} else {
-		m->bind_q = xe_exec_queue_create_class(xe, primary_gt, vm,
-						       XE_ENGINE_CLASS_COPY,
-						       EXEC_QUEUE_FLAG_KERNEL |
-						       EXEC_QUEUE_FLAG_MIGRATE, 0);
-		if (IS_ERR(m->bind_q)) {
-			err = PTR_ERR(m->bind_q);
-			goto err_out;
-		}
-
 		m->q = xe_exec_queue_create_class(xe, primary_gt, vm,
 						  XE_ENGINE_CLASS_COPY,
 						  EXEC_QUEUE_FLAG_KERNEL |
@@ -546,8 +525,6 @@ int xe_migrate_init(struct xe_migrate *m)
 	return err;
 
 err_out:
-	if (!IS_ERR_OR_NULL(m->bind_q))
-		xe_exec_queue_put(m->bind_q);
 	xe_vm_close_and_put(vm);
 	return err;
 
@@ -1507,17 +1484,6 @@ static u32 blt_mem_set_cmd_len(struct xe_device *xe)
 	return 7;
 }
 
-/**
- * xe_get_migrate_bind_queue() - Get the bind queue from migrate context.
- * @migrate: Migrate context.
- *
- * Return: Pointer to bind queue on success, error on failure
- */
-struct xe_exec_queue *xe_migrate_bind_queue(struct xe_migrate *migrate)
-{
-	return migrate->bind_q;
-}
-
 static void emit_clear_link_copy(struct xe_gt *gt, struct xe_bb *bb, u64 src_ofs,
 				 u32 size, u32 pitch)
 {
@@ -1781,165 +1747,6 @@ struct migrate_test_params {
 #define to_migrate_test_params(_priv) \
 	container_of(_priv, struct migrate_test_params, base)
 #endif
-
-/**
- * xe_migrate_update_pgtables_cpu_execute() - Update a VM's PTEs via the CPU
- * @vm: The VM being updated
- * @tile: The tile being updated
- * @ops: The migrate PT update ops
- * @pt_ops: The VM PT update ops
- * @num_ops: The number of The VM PT update ops
- * @force_clear: Force clear
- *
- * Execute the VM PT update ops array which results in a VM's PTEs being updated
- * via the CPU.
- */
-void
-xe_migrate_update_pgtables_cpu_execute(struct xe_vm *vm, struct xe_tile *tile,
-				       const struct xe_migrate_pt_update_ops *ops,
-				       struct xe_vm_pgtable_update_op *pt_op,
-				       u32 num_ops, bool force_clear)
-{
-	u32 j, i;
-
-	for (j = 0; j < num_ops; ++j, ++pt_op) {
-		for (i = 0; i < pt_op->num_entries; i++) {
-			const struct xe_vm_pgtable_update *update =
-				&pt_op->entries[i];
-
-			xe_tile_assert(tile, !iosys_map_is_null(&update->pt_bo->vmap));
-
-			if (pt_op->bind && !force_clear)
-				ops->populate(tile, &update->pt_bo->vmap,
-					      update);
-			else
-				ops->clear(vm, tile, &update->pt_bo->vmap,
-					   update);
-		}
-	}
-
-	trace_xe_vm_cpu_bind(vm);
-	xe_device_wmb(vm->xe);
-}
-
-static struct dma_fence *
-xe_migrate_update_pgtables_cpu(struct xe_migrate *m,
-			       struct xe_migrate_pt_update *pt_update)
-{
-	XE_TEST_DECLARE(struct migrate_test_params *test =
-			to_migrate_test_params
-			(xe_cur_kunit_priv(XE_TEST_LIVE_MIGRATE));)
-	const struct xe_migrate_pt_update_ops *ops = pt_update->ops;
-	struct xe_vm *vm = pt_update->vops->vm;
-	struct xe_vm_pgtable_update_ops *pt_update_ops =
-		&pt_update->vops->pt_update_ops[pt_update->tile_id];
-	int err;
-
-	if (XE_TEST_ONLY(test && test->force_gpu))
-		return ERR_PTR(-ETIME);
-
-	if (ops->pre_commit) {
-		pt_update->job = NULL;
-		err = ops->pre_commit(pt_update);
-		if (err)
-			return ERR_PTR(err);
-	}
-
-	xe_migrate_update_pgtables_cpu_execute(vm, m->tile, ops,
-					       pt_update_ops->pt_job_ops->ops,
-					       pt_update_ops->num_ops, false);
-
-	return dma_fence_get_stub();
-}
-
-static bool is_migrate_queue(struct xe_migrate *m, struct xe_exec_queue *q)
-{
-	return m->bind_q == q;
-}
-
-static struct dma_fence *
-__xe_migrate_update_pgtables(struct xe_migrate *m,
-			     struct xe_migrate_pt_update *pt_update,
-			     struct xe_vm_pgtable_update_ops *pt_update_ops)
-{
-	const struct xe_migrate_pt_update_ops *ops = pt_update->ops;
-	struct xe_tile *tile = m->tile;
-	struct xe_sched_job *job;
-	struct dma_fence *fence;
-	bool is_migrate = is_migrate_queue(m, pt_update_ops->q);
-	int err;
-
-	job = xe_sched_job_create(pt_update_ops->q, NULL);
-	if (IS_ERR(job)) {
-		err = PTR_ERR(job);
-		goto err_out;
-	}
-
-	xe_tile_assert(tile, job->is_pt_job);
-
-	if (ops->pre_commit) {
-		pt_update->job = job;
-		err = ops->pre_commit(pt_update);
-		if (err)
-			goto err_job;
-	}
-	if (is_migrate)
-		mutex_lock(&m->job_mutex);
-
-	job->pt_update[0].vm = pt_update->vops->vm;
-	job->pt_update[0].tile = tile;
-	job->pt_update[0].ops = ops;
-	job->pt_update[0].pt_job_ops =
-		xe_pt_job_ops_get(pt_update_ops->pt_job_ops);
-
-	xe_sched_job_arm(job);
-	fence = dma_fence_get(&job->drm.s_fence->finished);
-	xe_sched_job_push(job);
-
-	if (is_migrate)
-		mutex_unlock(&m->job_mutex);
-
-	return fence;
-
-err_job:
-	xe_sched_job_put(job);
-err_out:
-	return ERR_PTR(err);
-}
-
-/**
- * xe_migrate_update_pgtables() - Pipelined page-table update
- * @m: The migrate context.
- * @pt_update: PT update arguments
- *
- * Perform a pipelined page-table update. The update descriptors are typically
- * built under the same lock critical section as a call to this function. If
- * using the default engine for the updates, they will be performed in the
- * order they grab the job_mutex. If different engines are used, external
- * synchronization is needed for overlapping updates to maintain page-table
- * consistency. Note that the meaning of "overlapping" is that the updates
- * touch the same page-table, which might be a higher-level page-directory.
- * If no pipelining is needed, then updates may be performed by the cpu.
- *
- * Return: A dma_fence that, when signaled, indicates the update completion.
- */
-struct dma_fence *
-xe_migrate_update_pgtables(struct xe_migrate *m,
-			   struct xe_migrate_pt_update *pt_update)
-
-{
-	struct xe_vm_pgtable_update_ops *pt_update_ops =
-		&pt_update->vops->pt_update_ops[pt_update->tile_id];
-	struct dma_fence *fence;
-
-	fence =  xe_migrate_update_pgtables_cpu(m, pt_update);
-
-	/* -ETIME indicates a job is needed, anything else is legit error */
-	if (!IS_ERR(fence) || PTR_ERR(fence) != -ETIME)
-		return fence;
-
-	return __xe_migrate_update_pgtables(m, pt_update, pt_update_ops);
-}
 
 /**
  * xe_migrate_wait() - Complete all operations using the xe_migrate context
@@ -2441,56 +2248,6 @@ out_err:
 	xe_migrate_dma_unmap(xe, pagemap_addr, len + page_offset, write);
 	return IS_ERR(fence) ? PTR_ERR(fence) : 0;
 }
-
-/**
- * xe_migrate_job_lock() - Lock migrate job lock
- * @m: The migration context.
- * @q: Queue associated with the operation which requires a lock
- *
- * Lock the migrate job lock if the queue is a migration queue, otherwise
- * assert the VM's dma-resv is held (user queue's have own locking).
- */
-void xe_migrate_job_lock(struct xe_migrate *m, struct xe_exec_queue *q)
-{
-	bool is_migrate = is_migrate_queue(m, q);
-
-	if (is_migrate)
-		mutex_lock(&m->job_mutex);
-	else
-		xe_vm_assert_held(q->user_vm);	/* User queues VM's should be locked */
-}
-
-/**
- * xe_migrate_job_unlock() - Unlock migrate job lock
- * @m: The migration context.
- * @q: Queue associated with the operation which requires a lock
- *
- * Unlock the migrate job lock if the queue is a migration queue, otherwise
- * assert the VM's dma-resv is held (user queue's have own locking).
- */
-void xe_migrate_job_unlock(struct xe_migrate *m, struct xe_exec_queue *q)
-{
-	bool is_migrate = is_migrate_queue(m, q);
-
-	if (is_migrate)
-		mutex_unlock(&m->job_mutex);
-	else
-		xe_vm_assert_held(q->user_vm);	/* User queues VM's should be locked */
-}
-
-#if IS_ENABLED(CONFIG_PROVE_LOCKING)
-/**
- * xe_migrate_job_lock_assert() - Assert migrate job lock held of queue
- * @q: Migrate queue
- */
-void xe_migrate_job_lock_assert(struct xe_exec_queue *q)
-{
-	struct xe_migrate *m = gt_to_tile(q->gt)->migrate;
-
-	xe_gt_assert(q->gt, q == m->bind_q);
-	lockdep_assert_held(&m->job_mutex);
-}
-#endif
 
 #if IS_ENABLED(CONFIG_DRM_XE_KUNIT_TEST)
 #include "tests/xe_migrate.c"

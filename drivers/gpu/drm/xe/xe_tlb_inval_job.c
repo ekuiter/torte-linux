@@ -4,6 +4,7 @@
  */
 
 #include "xe_assert.h"
+#include "xe_cpu_bind.h"
 #include "xe_dep_job_types.h"
 #include "xe_dep_scheduler.h"
 #include "xe_exec_queue.h"
@@ -12,7 +13,6 @@
 #include "xe_page_reclaim.h"
 #include "xe_tlb_inval.h"
 #include "xe_tlb_inval_job.h"
-#include "xe_migrate.h"
 #include "xe_pm.h"
 #include "xe_vm.h"
 
@@ -218,7 +218,6 @@ int xe_tlb_inval_job_alloc_dep(struct xe_tlb_inval_job *job)
 /**
  * xe_tlb_inval_job_push() - TLB invalidation job push
  * @job: TLB invalidation job to push
- * @m: The migration object being used
  * @fence: Dependency for TLB invalidation job
  *
  * Pushes a TLB invalidation job for execution, using @fence as a dependency.
@@ -230,11 +229,11 @@ int xe_tlb_inval_job_alloc_dep(struct xe_tlb_inval_job *job)
  * Return: Job's finished fence on success, cannot fail
  */
 struct dma_fence *xe_tlb_inval_job_push(struct xe_tlb_inval_job *job,
-					struct xe_migrate *m,
 					struct dma_fence *fence)
 {
 	struct xe_tlb_inval_fence *ifence =
 		container_of(job->fence, typeof(*ifence), base);
+	struct xe_cpu_bind *cpu_bind = gt_to_xe(job->q->gt)->cpu_bind;
 
 	if (!dma_fence_is_signaled(fence)) {
 		void *ptr;
@@ -258,11 +257,11 @@ struct dma_fence *xe_tlb_inval_job_push(struct xe_tlb_inval_job *job,
 	job->fence_armed = true;
 
 	/*
-	 * We need the migration lock to protect the job's seqno and the spsc
-	 * queue, only taken on migration queue, user queues protected dma-resv
+	 * We need the cpu_bind lock to protect the job's seqno and the spsc
+	 * queue, only taken on cpu_bind queue, user queues protected dma-resv
 	 * VM lock.
 	 */
-	xe_migrate_job_lock(m, job->q);
+	xe_cpu_bind_job_lock(cpu_bind, job->q);
 
 	/* Creation ref pairs with put in xe_tlb_inval_job_destroy */
 	xe_tlb_inval_fence_init(job->tlb_inval, ifence, false);
@@ -281,7 +280,7 @@ struct dma_fence *xe_tlb_inval_job_push(struct xe_tlb_inval_job *job,
 					       &job->dep.drm.s_fence->finished,
 					       job->idx);
 
-	xe_migrate_job_unlock(m, job->q);
+	xe_cpu_bind_job_unlock(cpu_bind, job->q);
 
 	/*
 	 * Not using job->fence, as it has its own dma-fence context, which does

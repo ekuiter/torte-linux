@@ -14,7 +14,7 @@ struct dma_fence;
 struct dma_fence_chain;
 
 struct xe_exec_queue;
-struct xe_migrate_pt_update_ops;
+struct xe_cpu_bind_pt_update_ops;
 struct xe_pt_job_ops;
 struct xe_tile;
 struct xe_vm;
@@ -25,12 +25,11 @@ struct xe_vm;
 struct xe_pt_update_args {
 	/** @vm: VM which is being bound */
 	struct xe_vm *vm;
-	/** @tile: Tile which page tables belong to */
-	struct xe_tile *tile;
-	/** @ops: Migrate PT update ops */
-	const struct xe_migrate_pt_update_ops *ops;
+	/** @ops: CPU bind PT update ops */
+	const struct xe_cpu_bind_pt_update_ops *ops;
+#define XE_PT_UPDATE_JOB_OPS_COUNT	2
 	/** @pt_job_ops: PT job ops state */
-	struct xe_pt_job_ops *pt_job_ops;
+	struct xe_pt_job_ops *pt_job_ops[XE_PT_UPDATE_JOB_OPS_COUNT];
 };
 
 /**

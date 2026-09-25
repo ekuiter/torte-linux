@@ -19,6 +19,7 @@
 #include "abi/guc_klvs_abi.h"
 #include "xe_assert.h"
 #include "xe_bo.h"
+#include "xe_cpu_bind.h"
 #include "xe_devcoredump.h"
 #include "xe_device.h"
 #include "xe_exec_queue.h"
@@ -39,7 +40,6 @@
 #include "xe_lrc.h"
 #include "xe_macros.h"
 #include "xe_map.h"
-#include "xe_migrate.h"
 #include "xe_mocs.h"
 #include "xe_module.h"
 #include "xe_pm.h"
@@ -1245,14 +1245,38 @@ static bool is_pt_job(struct xe_sched_job *job)
 	return job->is_pt_job;
 }
 
-static void run_pt_job(struct xe_sched_job *job, bool force_clear)
+static void run_pt_job(struct xe_device *xe, struct xe_sched_job *job,
+		       bool force_clear)
 {
-	xe_migrate_update_pgtables_cpu_execute(job->pt_update[0].vm,
-					       job->pt_update[0].tile,
-					       job->pt_update[0].ops,
-					       job->pt_update[0].pt_job_ops->ops,
-					       job->pt_update[0].pt_job_ops->current_op,
-					       force_clear);
+	struct xe_tile *tile;
+	int id;
+
+	for_each_tile(tile, xe, id) {
+		struct xe_pt_job_ops *pt_job_ops =
+			job->pt_update[0].pt_job_ops[id];
+
+		if (!pt_job_ops || !pt_job_ops->current_op)
+			continue;
+
+		xe_cpu_bind_update_pgtables_execute(job->pt_update[0].vm, tile,
+						    job->pt_update[0].ops,
+						    pt_job_ops->ops,
+						    pt_job_ops->current_op,
+						    force_clear);
+	}
+}
+
+static void put_pt_job(struct xe_device *xe, struct xe_sched_job *job)
+{
+	struct xe_tile *tile;
+	int id;
+
+	for_each_tile(tile, xe, id) {
+		struct xe_pt_job_ops *pt_job_ops =
+			job->pt_update[0].pt_job_ops[id];
+
+		xe_pt_job_ops_put(pt_job_ops);
+	}
 }
 
 static struct dma_fence *
@@ -1272,8 +1296,10 @@ guc_exec_queue_run_job(struct drm_sched_job *drm_job)
 
 	if (is_pt_job(job)) {
 		xe_gt_assert(guc_to_gt(guc), !exec_queue_registered(q));
-		run_pt_job(job, killed_or_banned_or_wedged_or_error);
-		xe_pt_job_ops_put(job->pt_update[0].pt_job_ops);
+
+		run_pt_job(guc_to_xe(guc), job,
+			   killed_or_banned_or_wedged_or_error);
+		put_pt_job(guc_to_xe(guc), job);
 		dma_fence_put(job->fence);	/* Drop ref from xe_sched_job_arm */
 
 		return NULL;

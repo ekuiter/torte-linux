@@ -2708,12 +2708,17 @@ static const struct xe_migrate_pt_update_ops svm_userptr_migrate_ops;
 #endif
 
 static struct xe_dep_scheduler *to_dep_scheduler(struct xe_exec_queue *q,
-						 struct xe_gt *gt)
+						 struct xe_gt *gt,
+						 unsigned int *type)
 {
-	if (xe_gt_is_media_type(gt))
-		return q->tlb_inval[XE_EXEC_QUEUE_TLB_INVAL_MEDIA_GT].dep_scheduler;
+	int tile_ofs = gt_to_tile(gt)->id * (XE_EXEC_QUEUE_TLB_INVAL_MEDIA_GT + 1);
 
-	return q->tlb_inval[XE_EXEC_QUEUE_TLB_INVAL_PRIMARY_GT].dep_scheduler;
+	if (xe_gt_is_media_type(gt))
+		*type = tile_ofs + XE_EXEC_QUEUE_TLB_INVAL_MEDIA_GT;
+	else
+		*type = tile_ofs + XE_EXEC_QUEUE_TLB_INVAL_PRIMARY_GT;
+
+	return q->tlb_inval[*type].dep_scheduler;
 }
 
 /**
@@ -2738,6 +2743,7 @@ xe_pt_update_ops_run(struct xe_tile *tile, struct xe_vma_ops *vops)
 	struct xe_tlb_inval_job *ijob = NULL, *mjob = NULL;
 	struct xe_range_fence *rfence;
 	struct xe_vma_op *op;
+	unsigned int type;
 	int err = 0, i;
 	struct xe_migrate_pt_update update = {
 		.ops = pt_update_ops->needs_svm_lock ?
@@ -2764,13 +2770,13 @@ xe_pt_update_ops_run(struct xe_tile *tile, struct xe_vma_ops *vops)
 
 	if (pt_update_ops->needs_invalidation) {
 		struct xe_dep_scheduler *dep_scheduler =
-			to_dep_scheduler(q, tile->primary_gt);
+			to_dep_scheduler(q, tile->primary_gt, &type);
 
 		ijob = xe_tlb_inval_job_create(q, &tile->primary_gt->tlb_inval,
 					       dep_scheduler, vm,
 					       pt_update_ops->start,
 					       pt_update_ops->last,
-					       XE_EXEC_QUEUE_TLB_INVAL_PRIMARY_GT);
+					       type);
 		if (IS_ERR(ijob)) {
 			err = PTR_ERR(ijob);
 			goto kill_vm_tile1;
@@ -2789,14 +2795,15 @@ xe_pt_update_ops_run(struct xe_tile *tile, struct xe_vma_ops *vops)
 		}
 
 		if (tile->media_gt) {
-			dep_scheduler = to_dep_scheduler(q, tile->media_gt);
+			dep_scheduler = to_dep_scheduler(q, tile->media_gt,
+							 &type);
 
 			mjob = xe_tlb_inval_job_create(q,
 						       &tile->media_gt->tlb_inval,
 						       dep_scheduler, vm,
 						       pt_update_ops->start,
 						       pt_update_ops->last,
-						       XE_EXEC_QUEUE_TLB_INVAL_MEDIA_GT);
+						       type);
 			if (IS_ERR(mjob)) {
 				err = PTR_ERR(mjob);
 				goto free_ijob;

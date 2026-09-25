@@ -39,8 +39,8 @@ struct xe_tlb_inval_job {
 	u64 start;
 	/** @end: End address to invalidate */
 	u64 end;
-	/** @type: GT type */
-	int type;
+	/** @idx: Index of tlb invalidation */
+	int idx;
 	/** @fence_armed: Fence has been armed */
 	bool fence_armed;
 };
@@ -87,7 +87,7 @@ static const struct xe_dep_job_ops dep_job_ops = {
  * @vm: VM which TLB invalidation is being issued for
  * @start: Start address to invalidate
  * @end: End address to invalidate
- * @type: GT type
+ * @idx: Index of tlb invalidation
  *
  * Create a TLB invalidation job and initialize internal fields. The caller is
  * responsible for releasing the creation reference.
@@ -97,7 +97,7 @@ static const struct xe_dep_job_ops dep_job_ops = {
 struct xe_tlb_inval_job *
 xe_tlb_inval_job_create(struct xe_exec_queue *q, struct xe_tlb_inval *tlb_inval,
 			struct xe_dep_scheduler *dep_scheduler,
-			struct xe_vm *vm, u64 start, u64 end, int type)
+			struct xe_vm *vm, u64 start, u64 end, int idx)
 {
 	struct xe_tlb_inval_job *job;
 	struct drm_sched_entity *entity =
@@ -105,8 +105,7 @@ xe_tlb_inval_job_create(struct xe_exec_queue *q, struct xe_tlb_inval *tlb_inval,
 	struct xe_tlb_inval_fence *ifence;
 	int err;
 
-	xe_assert(vm->xe, type == XE_EXEC_QUEUE_TLB_INVAL_MEDIA_GT ||
-		  type == XE_EXEC_QUEUE_TLB_INVAL_PRIMARY_GT);
+	xe_assert(vm->xe, idx < XE_EXEC_QUEUE_TLB_INVAL_COUNT);
 
 	job = kmalloc_obj(*job);
 	if (!job)
@@ -120,7 +119,7 @@ xe_tlb_inval_job_create(struct xe_exec_queue *q, struct xe_tlb_inval *tlb_inval,
 	job->fence_armed = false;
 	xe_page_reclaim_list_init(&job->prl);
 	job->dep.ops = &dep_job_ops;
-	job->type = type;
+	job->idx = idx;
 	kref_init(&job->refcount);
 	xe_exec_queue_get(q);	/* Pairs with put in xe_tlb_inval_job_destroy */
 	xe_vm_get(vm);		/* Pairs with put in xe_tlb_inval_job_destroy */
@@ -280,7 +279,7 @@ struct dma_fence *xe_tlb_inval_job_push(struct xe_tlb_inval_job *job,
 	/* Let the upper layers fish this out */
 	xe_exec_queue_tlb_inval_last_fence_set(job->q, job->vm,
 					       &job->dep.drm.s_fence->finished,
-					       job->type);
+					       job->idx);
 
 	xe_migrate_job_unlock(m, job->q);
 

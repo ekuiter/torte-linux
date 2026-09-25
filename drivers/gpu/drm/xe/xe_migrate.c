@@ -8,6 +8,7 @@
 #include <linux/bitfield.h>
 #include <linux/sizes.h>
 
+#include <drm/drm_drv.h>
 #include <drm/drm_managed.h>
 #include <drm/drm_pagemap.h>
 #include <drm/ttm/ttm_tt.h>
@@ -32,6 +33,7 @@
 #include "xe_mem_pool.h"
 #include "xe_mocs.h"
 #include "xe_pat.h"
+#include "xe_pm.h"
 #include "xe_printk.h"
 #include "xe_pt.h"
 #include "xe_res_cursor.h"
@@ -77,6 +79,14 @@ struct xe_migrate {
 	struct dma_fence *fence;
 	/** @min_chunk_size: For dgfx, Minimum chunk size */
 	u64 min_chunk_size;
+	/** @ulls: ULLS support */
+	struct {
+		/** @ulls.enabled: ULLS is enabled, protected by job_mutex */
+		bool enabled;
+#define ULLS_EXIT_JIFFIES	msecs_to_jiffies(5)
+		/** @ulls.exit_work: ULLS exit worker */
+		struct delayed_work exit_work;
+	} ulls;
 };
 
 #define MAX_PREEMPTDISABLE_TRANSFER SZ_8M /* Around 1ms. */
@@ -95,9 +105,30 @@ struct xe_migrate {
  */
 #define MAX_PTE_PER_SDI 0x1FEU
 
+static bool xe_migrate_ulls_enabled(struct xe_migrate *m)
+{
+	lockdep_assert_held(&m->job_mutex);
+	return m->ulls.enabled;
+}
+
+static void xe_migrate_ulls_toggle_enable(struct xe_migrate *m, bool enabled)
+{
+	lockdep_assert_held(&m->job_mutex);
+	m->ulls.enabled = enabled;
+}
+
 static void xe_migrate_fini(void *arg)
 {
 	struct xe_migrate *m = arg;
+	struct xe_device *xe = tile_to_xe(m->tile);
+
+	disable_delayed_work_sync(&m->ulls.exit_work);
+	scoped_guard(mutex, &m->job_mutex) {
+		if (xe_migrate_ulls_enabled(m)) {
+			xe_pm_runtime_put(xe);
+			xe_migrate_ulls_toggle_enable(m, false);
+		}
+	}
 
 	xe_vm_lock(m->q->vm, false);
 	xe_bo_unpin(m->pt_bo);
@@ -448,6 +479,150 @@ static int xe_migrate_lock_prepare_vm(struct xe_tile *tile, struct xe_migrate *m
 	return err;
 }
 
+static struct dma_fence *__xe_migrate_job_push(struct xe_migrate *m,
+					       struct xe_sched_job *job,
+					       enum xe_ulls_state ulls)
+{
+	struct dma_fence *fence;
+
+	lockdep_assert_held(&m->job_mutex);
+	xe_tile_assert(m->tile, m->q == job->q);
+
+	job->ulls = ulls;
+	xe_sched_job_arm(job);
+	fence = dma_fence_get(&job->drm.s_fence->finished);
+	xe_sched_job_push(job);
+
+	return fence;
+}
+
+/*
+ * Arm and push a migration job, tagging it as a ULLS job and deferring the
+ * ULLS exit while ULLS mode is active.
+ *
+ * Returns a reference to the job's finished fence.
+ */
+static struct dma_fence *xe_migrate_job_push(struct xe_migrate *m,
+					     struct xe_sched_job *job)
+{
+	enum xe_ulls_state ulls = ULLS_NONE;
+
+	lockdep_assert_held(&m->job_mutex);
+
+	if (xe_migrate_ulls_enabled(m)) {
+		ulls = ULLS_ACTIVE;
+		mod_delayed_work(system_percpu_wq, &m->ulls.exit_work,
+				 ULLS_EXIT_JIFFIES);
+	}
+
+	return __xe_migrate_job_push(m, job, ulls);
+}
+
+/**
+ * xe_migrate_ulls_enter() - Enter ULLS mode
+ * @m: The migration context.
+ *
+ * If DGFX, enter ULLS mode bypassing GuC / HW context switches by utilizing
+ * semaphore and continuously running batches.
+ */
+void xe_migrate_ulls_enter(struct xe_migrate *m)
+{
+	struct xe_device *xe = tile_to_xe(m->tile);
+	struct xe_sched_job *job = NULL;
+	u64 batch_addr[2] = { 0, 0 };
+	bool alloc = false;
+
+	xe_assert(xe, xe->info.has_usm);
+
+	if (!IS_DGFX(xe))
+		return;
+
+job_alloc:
+	if (alloc) {
+		/*
+		 * Must be done outside job_mutex as that lock is tainted with
+		 * reclaim.
+		 */
+		job = xe_sched_job_create(m->q, batch_addr);
+		if (WARN_ON_ONCE(IS_ERR(job)))
+			return;		/* Not fatal */
+	}
+
+	mutex_lock(&m->job_mutex);
+	if (!xe_migrate_ulls_enabled(m)) {
+		struct dma_fence *fence;
+
+		if (!job) {
+			alloc = true;
+			mutex_unlock(&m->job_mutex);
+			goto job_alloc;
+		}
+
+		/* Pairs with PM put on ULLS exit */
+		xe_pm_runtime_get_noresume(xe);
+
+		xe_sched_job_get(job);
+		fence = __xe_migrate_job_push(m, job, ULLS_ENTER);
+		dma_fence_put(fence);
+
+		xe_dbg(xe, "Migrate ULLS mode enter");
+		xe_migrate_ulls_toggle_enable(m, true);
+	}
+	if (job)
+		xe_sched_job_put(job);
+	if (xe_migrate_ulls_enabled(m))
+		mod_delayed_work(system_percpu_wq, &m->ulls.exit_work,
+				 ULLS_EXIT_JIFFIES);
+	mutex_unlock(&m->job_mutex);
+}
+
+static void xe_migrate_ulls_exit(struct work_struct *work)
+{
+	struct xe_migrate *m = container_of(work, struct xe_migrate,
+					    ulls.exit_work.work);
+	struct xe_device *xe = tile_to_xe(m->tile);
+	struct xe_sched_job *job = NULL;
+	struct dma_fence *fence = NULL;
+	u64 batch_addr[2] = { 0, 0 };
+	int idx;
+
+	xe_assert(xe, m->ulls.enabled);
+
+	if (!drm_dev_enter(&xe->drm, &idx))
+		return;
+
+	/*
+	 * Must be done outside job_mutex as that lock is tainted with
+	 * reclaim and must be done holding a pm ref.
+	 */
+	job = xe_sched_job_create(m->q, batch_addr);
+	if (WARN_ON_ONCE(IS_ERR(job))) {
+		drm_dev_exit(idx);
+		mod_delayed_work(system_percpu_wq, &m->ulls.exit_work,
+				 ULLS_EXIT_JIFFIES);
+		return;		/* Not fatal */
+	}
+
+	scoped_guard(mutex, &m->job_mutex) {
+		if (xe_exec_queue_is_idle(m->q, 1)) {
+			fence = __xe_migrate_job_push(m, job, ULLS_EXIT);
+			dma_fence_put(fence);
+
+			xe_pm_runtime_put(xe);	/* Pairs with PM get in enter */
+			xe_migrate_ulls_toggle_enable(m, false);
+			cancel_delayed_work(&m->ulls.exit_work);
+
+			xe_dbg(xe, "Migrate ULLS mode exit");
+		} else {
+			xe_sched_job_put(job);
+			mod_delayed_work(system_percpu_wq, &m->ulls.exit_work,
+					 ULLS_EXIT_JIFFIES);
+		}
+	}
+
+	drm_dev_exit(idx);
+}
+
 /**
  * xe_migrate_init() - Initialize a migrate context
  * @m: The migration context
@@ -505,6 +680,8 @@ int xe_migrate_init(struct xe_migrate *m)
 	fs_reclaim_acquire(GFP_KERNEL);
 	might_lock(&m->job_mutex);
 	fs_reclaim_release(GFP_KERNEL);
+
+	INIT_DELAYED_WORK(&m->ulls.exit_work, xe_migrate_ulls_exit);
 
 	err = devm_add_action_or_reset(xe->drm.dev, xe_migrate_fini, m);
 	if (err)
@@ -1033,10 +1210,8 @@ static struct dma_fence *__xe_migrate_copy(struct xe_migrate *m,
 		}
 
 		mutex_lock(&m->job_mutex);
-		xe_sched_job_arm(job);
 		dma_fence_put(fence);
-		fence = dma_fence_get(&job->drm.s_fence->finished);
-		xe_sched_job_push(job);
+		fence = xe_migrate_job_push(m, job);
 
 		dma_fence_put(m->fence);
 		m->fence = dma_fence_get(fence);
@@ -1464,10 +1639,8 @@ struct dma_fence *xe_migrate_vram_copy_chunk(struct xe_bo *vram_bo, u64 vram_off
 						     DMA_RESV_USAGE_BOOKKEEP));
 
 		scoped_guard(mutex, &m->job_mutex) {
-			xe_sched_job_arm(job);
 			dma_fence_put(fence);
-			fence = dma_fence_get(&job->drm.s_fence->finished);
-			xe_sched_job_push(job);
+			fence = xe_migrate_job_push(m, job);
 
 			dma_fence_put(m->fence);
 			m->fence = dma_fence_get(fence);
@@ -1701,10 +1874,8 @@ struct dma_fence *xe_migrate_clear(struct xe_migrate *m,
 		}
 
 		mutex_lock(&m->job_mutex);
-		xe_sched_job_arm(job);
 		dma_fence_put(fence);
-		fence = dma_fence_get(&job->drm.s_fence->finished);
-		xe_sched_job_push(job);
+		fence = xe_migrate_job_push(m, job);
 
 		dma_fence_put(m->fence);
 		m->fence = dma_fence_get(fence);
@@ -1980,9 +2151,7 @@ static struct dma_fence *xe_migrate_vram(struct xe_migrate *m,
 	}
 
 	mutex_lock(&m->job_mutex);
-	xe_sched_job_arm(job);
-	fence = dma_fence_get(&job->drm.s_fence->finished);
-	xe_sched_job_push(job);
+	fence = xe_migrate_job_push(m, job);
 
 	dma_fence_put(m->fence);
 	m->fence = dma_fence_get(fence);
@@ -2299,10 +2468,7 @@ int xe_migrate_debug_ccs_overlap(struct xe_migrate *m,
 		xe_sched_job_add_migrate_flush(job, MI_FLUSH_DW_CCS);
 
 		mutex_lock(&m->job_mutex);
-		xe_sched_job_arm(job);
-
-		fence = dma_fence_get(&job->drm.s_fence->finished);
-		xe_sched_job_push(job);
+		fence = xe_migrate_job_push(m, job);
 		mutex_unlock(&m->job_mutex);
 
 		dma_fence_wait(fence, false);

@@ -50,6 +50,23 @@ struct xe_job_ptrs {
 };
 
 /**
+ * enum xe_ulls_state - ULLS state of a migration job
+ *
+ * Describes where a job sits in a ULLS (Ultra Low Latency Submission)
+ * sequence. See the ULLS documentation in xe_migrate.c.
+ */
+enum xe_ulls_state {
+	/** @ULLS_NONE: Not a ULLS job */
+	ULLS_NONE = 0,
+	/** @ULLS_ENTER: Job which enters ULLS mode */
+	ULLS_ENTER,
+	/** @ULLS_ACTIVE: Job submitted while in ULLS mode */
+	ULLS_ACTIVE,
+	/** @ULLS_EXIT: Job which exits ULLS mode */
+	ULLS_EXIT,
+};
+
+/**
  * struct xe_sched_job - Xe schedule job (batch buffer tracking)
  */
 struct xe_sched_job {
@@ -79,6 +96,8 @@ struct xe_sched_job {
 	u32 migrate_flush_flags;
 	/** @sample_timestamp: Sampling of job timestamp in TDR */
 	u64 sample_timestamp;
+	/** @ulls: ULLS state of this job */
+	enum xe_ulls_state ulls;
 	/** @ring_ops_flush_tlb: The ring ops need to flush TLB before payload. */
 	bool ring_ops_flush_tlb;
 	/** @ring_ops_force_reset: The ring ops need to trigger a reset before payload. */

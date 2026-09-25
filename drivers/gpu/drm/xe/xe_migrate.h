@@ -97,4 +97,6 @@ int xe_migrate_debug_ccs_overlap(struct xe_migrate *m,
 				 bool write_to_ccs);
 #endif
 
+void xe_migrate_ulls_enter(struct xe_migrate *m);
+
 #endif

@@ -141,7 +141,7 @@ static int an7581_afe_fe_startup(struct snd_pcm_substream *substream, struct snd
 	return ret;
 }
 
-const struct snd_soc_dai_ops an7581_afe_fe_ops = {
+static const struct snd_soc_dai_ops an7581_afe_fe_ops = {
 	.startup	= an7581_afe_fe_startup,
 	.shutdown	= mtk_afe_fe_shutdown,
 	.hw_params	= mtk_afe_fe_hw_params,
@@ -375,7 +375,7 @@ static int an7581_afe_pcm_dev_probe(struct platform_device *pdev)
 	struct reset_control *reset;
 	struct mtk_base_afe *afe;
 	int i, irq_id, ret;
-	void *base;
+	void __iomem *base;
 
 	afe = devm_kzalloc(dev, sizeof(*afe), GFP_KERNEL);
 	if (!afe)

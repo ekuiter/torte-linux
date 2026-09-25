@@ -43,9 +43,6 @@ struct xe_migrate_pt_update_ops {
 	 * @populate: Populate a command buffer or page-table with ptes.
 	 * @tile: The tile for the current operation.
 	 * @map: struct iosys_map into the memory to be populated.
-	 * @pos: If @map is NULL, map into the memory to be populated.
-	 * @ofs: qword offset into @map, unused if @map is NULL.
-	 * @num_qwords: Number of qwords to write.
 	 * @update: Information about the PTEs to be inserted.
 	 *
 	 * This interface is intended to be used as a callback into the
@@ -53,16 +50,12 @@ struct xe_migrate_pt_update_ops {
 	 * page-tables with PTEs.
 	 */
 	void (*populate)(struct xe_tile *tile, struct iosys_map *map,
-			 void *pos, u32 ofs, u32 num_qwords,
 			 const struct xe_vm_pgtable_update *update);
 	/**
 	 * @clear: Clear a command buffer or page-table with ptes.
 	 * @vm: VM being updated
 	 * @tile: The tile for the current operation.
 	 * @map: struct iosys_map into the memory to be populated.
-	 * @pos: If @map is NULL, map into the memory to be populated.
-	 * @ofs: qword offset into @map, unused if @map is NULL.
-	 * @num_qwords: Number of qwords to write.
 	 * @update: Information about the PTEs to be inserted.
 	 *
 	 * This interface is intended to be used as a callback into the
@@ -70,8 +63,7 @@ struct xe_migrate_pt_update_ops {
 	 * page-tables with PTEs.
 	 */
 	void (*clear)(struct xe_vm *vm, struct xe_tile *tile,
-		      struct iosys_map *map, void *pos, u32 ofs,
-		      u32 num_qwords,
+		      struct iosys_map *map,
 		      const struct xe_vm_pgtable_update *update);
 
 	/**

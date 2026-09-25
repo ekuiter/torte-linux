@@ -246,7 +246,8 @@ static void xe_migrate_prepare_vm(struct xe_tile *tile, struct xe_migrate *m,
 	struct xe_device *xe = tile_to_xe(tile);
 	u16 pat_index = xe_cache_pat_idx(xe, XE_CACHE_WB);
 	u8 id = tile->id;
-	u32 num_entries = NUM_PT_SLOTS, num_level = vm->pt_root[id]->level;
+	u32 num_entries = NUM_PT_SLOTS, num_level =
+		xe_vm_pt_root(vm, id)->level;
 #define VRAM_IDENTITY_MAP_PT_COUNT	4
 	u32 num_setup = num_level + VRAM_IDENTITY_MAP_PT_COUNT;
 #undef VRAM_IDENTITY_MAP_PT_COUNT
@@ -258,7 +259,7 @@ static void xe_migrate_prepare_vm(struct xe_tile *tile, struct xe_migrate *m,
 	u64 l1_pt_ofs = xe_bo_size(bo) - 5 * XE_PAGE_SIZE;
 
 	entry = vm->pt_ops->pde_encode_bo(bo, l1_pt_ofs);
-	xe_pt_write(xe, &vm->pt_root[id]->bo->vmap, 0, entry);
+	xe_pt_write(xe, &xe_vm_pt_root(vm, id)->bo->vmap, 0, entry);
 
 	map_ofs = (num_entries - num_setup) * XE_PAGE_SIZE;
 

@@ -1819,11 +1819,23 @@ struct migrate_test_params {
 	container_of(_priv, struct migrate_test_params, base)
 #endif
 
-static void
+/**
+ * xe_migrate_update_pgtables_cpu_execute() - Update a VM's PTEs via the CPU
+ * @vm: The VM being updated
+ * @tile: The tile being updated
+ * @ops: The migrate PT update ops
+ * @pt_ops: The VM PT update ops
+ * @num_ops: The number of The VM PT update ops
+ * @force_clear: Force clear
+ *
+ * Execute the VM PT update ops array which results in a VM's PTEs being updated
+ * via the CPU.
+ */
+void
 xe_migrate_update_pgtables_cpu_execute(struct xe_vm *vm, struct xe_tile *tile,
 				       const struct xe_migrate_pt_update_ops *ops,
 				       struct xe_vm_pgtable_update_op *pt_op,
-				       u32 num_ops)
+				       u32 num_ops, bool force_clear)
 {
 	u32 j, i;
 
@@ -1834,7 +1846,7 @@ xe_migrate_update_pgtables_cpu_execute(struct xe_vm *vm, struct xe_tile *tile,
 
 			xe_tile_assert(tile, !iosys_map_is_null(&update->pt_bo->vmap));
 
-			if (pt_op->bind)
+			if (pt_op->bind && !force_clear)
 				ops->populate(tile, &update->pt_bo->vmap,
 					      NULL, update->ofs, update->qwords,
 					      update);
@@ -1874,7 +1886,7 @@ xe_migrate_update_pgtables_cpu(struct xe_migrate *m,
 
 	xe_migrate_update_pgtables_cpu_execute(vm, m->tile, ops,
 					       pt_update_ops->pt_job_ops->ops,
-					       pt_update_ops->num_ops);
+					       pt_update_ops->num_ops, false);
 
 	return dma_fence_get_stub();
 }

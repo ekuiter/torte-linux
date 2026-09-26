@@ -603,7 +603,6 @@ struct aw88399 {
 	unsigned int crc_init_val;
 	unsigned int vcalb_init_val;
 	unsigned int dither_st;
-	bool bsts_unreliable;
 	bool fw_needs_reload;
 };
 

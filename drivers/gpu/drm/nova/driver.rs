@@ -95,9 +95,8 @@ impl drm::Driver for NovaDriver {
     const FEAT_RENDER: bool = true;
 
     kernel::declare_drm_ioctls! {
-        (NOVA_GETPARAM, drm_nova_getparam, ioctl::RENDER_ALLOW, File::get_param),
+        (NOVA_INFO, drm_nova_info, ioctl::RENDER_ALLOW, File::info),
         (NOVA_GEM_CREATE, drm_nova_gem_create, ioctl::AUTH | ioctl::RENDER_ALLOW, File::gem_create),
         (NOVA_GEM_INFO, drm_nova_gem_info, ioctl::AUTH | ioctl::RENDER_ALLOW, File::gem_info),
-        (NOVA_INFO, drm_nova_info, ioctl::RENDER_ALLOW, File::info),
     }
 }

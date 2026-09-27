@@ -18,13 +18,6 @@
 extern "C" {
 #endif
 
-/*
- * NOVA_GETPARAM_VRAM_BAR_SIZE
- *
- * Query the VRAM BAR size in bytes.
- */
-#define NOVA_GETPARAM_VRAM_BAR_SIZE	0x1
-
 /**
  * enum drm_nova_architecture - GPU architecture identifier
  */
@@ -75,21 +68,6 @@ enum drm_nova_chipid {
 	NOVA_DRM_CHIPID_GB205			= 0x1b5,
 	NOVA_DRM_CHIPID_GB206			= 0x1b6,
 	NOVA_DRM_CHIPID_GB207			= 0x1b7,
-};
-
-/**
- * struct drm_nova_getparam - query GPU and driver metadata
- */
-struct drm_nova_getparam {
-	/**
-	 * @param: The identifier of the parameter to query.
-	 */
-	__u64 param;
-
-	/**
-	 * @value: The value for the specified parameter.
-	 */
-	__u64 value;
 };
 
 /**
@@ -190,6 +168,11 @@ struct drm_nova_info_gpu {
 	__u64 vram_size;
 
 	/**
+	 * @vram_bar_size: Size of the PCI BAR aperture used to access VRAM, in bytes.
+	 */
+	__u64 vram_bar_size;
+
+	/**
 	 * @gpu_name: NUL-terminated full GPU name.
 	 */
 	__u8 gpu_name[64];
@@ -205,21 +188,18 @@ struct drm_nova_info_gpu {
 	__u8 gpu_gid[16];
 };
 
-#define DRM_NOVA_GETPARAM		0x00
+#define DRM_NOVA_INFO			0x00
 #define DRM_NOVA_GEM_CREATE		0x01
 #define DRM_NOVA_GEM_INFO		0x02
-#define DRM_NOVA_INFO			0x03
 
 /* Note: this is an enum so that it can be resolved by Rust bindgen. */
 enum {
-	DRM_IOCTL_NOVA_GETPARAM		= DRM_IOWR(DRM_COMMAND_BASE + DRM_NOVA_GETPARAM,
-						   struct drm_nova_getparam),
+	DRM_IOCTL_NOVA_INFO		= DRM_IOWR(DRM_COMMAND_BASE + DRM_NOVA_INFO,
+						   struct drm_nova_info),
 	DRM_IOCTL_NOVA_GEM_CREATE	= DRM_IOWR(DRM_COMMAND_BASE + DRM_NOVA_GEM_CREATE,
 						   struct drm_nova_gem_create),
 	DRM_IOCTL_NOVA_GEM_INFO		= DRM_IOWR(DRM_COMMAND_BASE + DRM_NOVA_GEM_INFO,
 						   struct drm_nova_gem_info),
-	DRM_IOCTL_NOVA_INFO		= DRM_IOWR(DRM_COMMAND_BASE + DRM_NOVA_INFO,
-						   struct drm_nova_info),
 };
 
 #if defined(__cplusplus)

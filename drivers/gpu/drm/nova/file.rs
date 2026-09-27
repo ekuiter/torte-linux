@@ -60,6 +60,7 @@ impl GpuInfo {
             architecture: spec.chipset.arch().into(),
             chipid: spec.chipset.into(),
             vram_size: gsp_static_info.vram_size(),
+            vram_bar_size: reg_data.api.with(|api| api.bar1_size())?,
             gpu_gid: gsp_static_info.gpu_gid,
             ..pin_init::zeroed()
         };
@@ -108,23 +109,6 @@ impl drm::file::DriverFile for File {
 }
 
 impl File {
-    /// IOCTL: get_param: Query GPU / driver metadata.
-    pub(crate) fn get_param(
-        _dev: &NovaDevice<Registered>,
-        reg_data: &DrmRegData<'_>,
-        getparam: &mut uapi::drm_nova_getparam,
-        _file: &drm::File<File>,
-    ) -> Result<u32> {
-        let value = match getparam.param.try_into()? {
-            uapi::NOVA_GETPARAM_VRAM_BAR_SIZE => reg_data.api.with(|api| api.bar1_size())?,
-            _ => return Err(EINVAL),
-        };
-
-        getparam.value = Into::<u64>::into(value);
-
-        Ok(0)
-    }
-
     /// IOCTL: gem_create: Create a new DRM GEM object.
     pub(crate) fn gem_create(
         dev: &NovaDevice<Registered>,

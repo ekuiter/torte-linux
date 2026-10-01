@@ -25,7 +25,23 @@
 
 struct ipu6_bus_device;
 
-#define IPU6_ISYS_ENTITY_PREFIX		"Intel IPU6"
+#define IPU6_ISYS_ENTITY_VERSION	"6"
+#define IPU7_ISYS_ENTITY_VERSION	"7"
+#define IPU7P5_ISYS_ENTITY_VERSION	"7.5"
+#define IPU8_ISYS_ENTITY_VERSION	"8"
+
+static inline const char *ipu6_isys_entity_version(struct ipu6_device *isp)
+{
+	if (IS_IPU8(isp))
+		return IPU8_ISYS_ENTITY_VERSION;
+	if (IS_IPU7P5(isp))
+		return IPU7P5_ISYS_ENTITY_VERSION;
+	if (IS_IPU7_MTL(isp))
+		return IPU7_ISYS_ENTITY_VERSION;
+
+	return IPU6_ISYS_ENTITY_VERSION;
+}
+
 /* FW support max 16 streams */
 #define IPU6_ISYS_MAX_STREAMS		16
 #define ISYS_UNISPART_IRQS	(IPU6_ISYS_UNISPART_IRQ_SW |	\

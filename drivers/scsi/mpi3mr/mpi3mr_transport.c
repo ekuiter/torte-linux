@@ -1571,8 +1571,6 @@ static struct mpi3mr_sas_port *mpi3mr_sas_port_add(struct mpi3mr_ioc *mrioc,
 		mr_sas_phy->phy_belongs_to_port = 0;
 		list_del(&mr_sas_phy->port_siblings);
 	}
-	if (tgtdev)
-		mpi3mr_tgtdev_put(tgtdev);
 	kfree(mr_sas_port);
 	return NULL;
 }

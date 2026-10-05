@@ -204,7 +204,7 @@ const int landlock_abi_version = 11;
  *   scoped;
  * - %E2BIG: @attr or @size inconsistencies;
  * - %EFAULT: @attr or @size inconsistencies;
- * - %ENOMSG: empty handled_access_fs, handled_access_net, and scoped fields.
+ * - %ENOMSG: empty &landlock_ruleset_attr.handled_access_fs.
  *
  * .. kernel-doc:: include/uapi/linux/landlock.h
  *     :identifiers: landlock_create_ruleset_flags

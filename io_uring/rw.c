@@ -249,7 +249,6 @@ static int __io_prep_rw(struct io_kiocb *req, const struct io_uring_sqe *sqe,
 	struct io_rw *rw = io_kiocb_to_cmd(req, struct io_rw);
 	struct io_async_rw *io;
 	unsigned ioprio;
-	u64 attr_type_mask;
 	int ret;
 
 	if (io_rw_alloc_async(req))
@@ -282,19 +281,14 @@ static int __io_prep_rw(struct io_kiocb *req, const struct io_uring_sqe *sqe,
 	rw->addr = READ_ONCE(sqe->addr);
 	rw->len = READ_ONCE(sqe->len);
 	rw->flags = (__force rwf_t) READ_ONCE(sqe->rw_flags);
-
-	attr_type_mask = READ_ONCE(sqe->attr_type_mask);
-	if (attr_type_mask) {
-		u64 attr_ptr;
-
-		/* only PI attribute is supported currently */
-		if (attr_type_mask != IORING_RW_ATTR_FLAG_PI)
-			return -EINVAL;
-
-		attr_ptr = READ_ONCE(sqe->attr_ptr);
-		return io_prep_rw_pi(req, rw, ddir, attr_ptr);
+	switch (READ_ONCE(sqe->attr_type_mask)) {
+	case 0:
+		return 0;
+	case IORING_RW_ATTR_FLAG_PI:
+		return io_prep_rw_pi(req, rw, ddir, READ_ONCE(sqe->attr_ptr));
+	default:
+		return -EINVAL;
 	}
-	return 0;
 }
 
 static int io_rw_do_import(struct io_kiocb *req, int ddir)

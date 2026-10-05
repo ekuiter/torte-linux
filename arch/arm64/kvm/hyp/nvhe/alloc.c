@@ -28,13 +28,14 @@
  */
 #define MIN_ALLOC_SIZE 16UL
 
-/**
+/*
  * struct chunk_hdr - Chunk header
  * @next:       offset from this chunk header to the next one.
  * @prev:       offset from this chunk header to the previous one.
  * @__unmapped: Internal field containing the offset to the unmapped page
  *              boundary, multiplexed with the allocation state flag.
  * @hash:       Hash computed over the chunk header.
+ * @data:       Chunk payload.
  */
 struct chunk_hdr {
 	u32			next;
@@ -45,7 +46,7 @@ struct chunk_hdr {
 	char			data[];
 } __aligned(MIN_ALLOC_SIZE);
 
-/**
+/*
  * struct hyp_allocator - Heap allocator
  * @start:		Start in the allocator's reserved virtual address range.
  * @end:		End in the allocator's reserved virtual address range.

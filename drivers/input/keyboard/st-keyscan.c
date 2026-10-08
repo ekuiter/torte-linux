@@ -145,7 +145,6 @@ static int keyscan_probe(struct platform_device *pdev)
 
 	input_dev->name = pdev->name;
 	input_dev->phys = "keyscan-keys/input0";
-	input_dev->dev.parent = &pdev->dev;
 	input_dev->open = keyscan_open;
 	input_dev->close = keyscan_close;
 

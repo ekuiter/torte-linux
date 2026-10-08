@@ -626,7 +626,6 @@ static int mms114_probe(struct i2c_client *client)
 		return -ENOMEM;
 
 	input_dev->id.bustype = BUS_I2C;
-	input_dev->dev.parent = &client->dev;
 	input_dev->open = mms114_input_open;
 	input_dev->close = mms114_input_close;
 

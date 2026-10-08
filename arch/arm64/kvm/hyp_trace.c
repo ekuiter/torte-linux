@@ -146,8 +146,8 @@ static void __unshare_page(unsigned long va)
 
 static int hyp_trace_buffer_alloc_bpages_backing(struct hyp_trace_buffer *trace_buffer, size_t size)
 {
+	unsigned long nr_bpages;
 	size_t backing_size;
-	int nr_bpages;
 	void *start;
 	int ret;
 
@@ -157,7 +157,7 @@ static int hyp_trace_buffer_alloc_bpages_backing(struct hyp_trace_buffer *trace_
 		return 0;
 	}
 
-	nr_bpages = (PAGE_ALIGN(size) / PAGE_SIZE) + 1;
+	nr_bpages = __calc_nr_pages_ring_buffer_desc(size);
 	backing_size = PAGE_ALIGN(sizeof(struct simple_buffer_page) * nr_bpages *
 				  num_possible_cpus());
 

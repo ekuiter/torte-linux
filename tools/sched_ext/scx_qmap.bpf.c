@@ -2167,11 +2167,35 @@ s32 BPF_STRUCT_OPS(qmap_sub_attach, struct scx_sub_attach_args *args)
 
 void BPF_STRUCT_OPS(qmap_sub_detach, struct scx_sub_detach_args *args)
 {
-	s32 i;
+	u64 cgid = args->ops->sub_cgroup_id;
+	s32 nr_cids = qa.nr_cids;
+	s32 pos = qa.part.rr_pos;
+	u64 holder_cgid;
+	bool reset_pool;
+	s32 i, cid;
+
+	if (nr_cids < 0 || nr_cids > SCX_QMAP_MAX_CPUS || pos < 0 || pos >= MAX_PARTS) {
+		scx_bpf_error("-ERANGE");
+		return;
+	}
+
+	/*
+	 * The child's caps are gone without a report, see ops.sub_detach().
+	 * cpuperf targets persist until the next write. Reset the child's excl
+	 * cids, and the pool unless another child holds it: that child's revoke
+	 * report or its own detach resets it then.
+	 */
+	holder_cgid = qa.part.rr_slots[pos];
+	reset_pool = !holder_cgid || holder_cgid == cgid;
 
 	for (i = 0; i < MAX_SUB_SCHEDS; i++) {
-		if (qa.sub_sched_ctxs[i].cgroup_id != args->ops->sub_cgroup_id)
+		if (qa.sub_sched_ctxs[i].cgroup_id != cgid)
 			continue;
+
+		bpf_arena_for(cid, 0, nr_cids)
+			if (cmask_test(cid, &qa.sub_sched_ctxs[i].granted_cids.mask) ||
+			    (reset_pool && cmask_test(cid, &qa.rr_cids.mask)))
+				scx_bpf_cidperf_set(cid, SCX_CPUPERF_ONE);
 
 		qa.sub_sched_ctxs[i].cgroup_id = 0;
 		qa.sub_sched_ctxs[i].weight = 100;
@@ -2208,6 +2232,16 @@ void BPF_STRUCT_OPS(qmap_sub_ecaps_updated, s32 cid, u64 before, u64 after)
 	execute_partition();
 }
 
+void BPF_STRUCT_OPS(qmap_sub_child_ecaps_updated, u64 cgroup_id, s32 cid, u64 before,
+		    u64 after)
+{
+	__sync_fetch_and_add(&qa.nr_child_ecaps, 1);
+
+	/* a child's last target must not outlive its PERF cap */
+	if ((before & ~after) & SCX_CAP_PERF)
+		scx_bpf_cidperf_set(cid, SCX_CPUPERF_ONE);
+}
+
 SCX_OPS_CID_DEFINE(qmap_ops,
 	       .flags			= SCX_OPS_ENQ_EXITING | SCX_OPS_TID_TO_TASK,
 	       .select_cid		= (void *)qmap_select_cid,
@@ -2232,6 +2266,7 @@ SCX_OPS_CID_DEFINE(qmap_ops,
 	       .sub_caps_updated	= (void *)qmap_sub_caps_updated,
 	       .sub_ecaps_updated	= (void *)qmap_sub_ecaps_updated,
 	       .sub_cid_sched_updated	= (void *)qmap_sub_cid_sched_updated,
+	       .sub_child_ecaps_updated	= (void *)qmap_sub_child_ecaps_updated,
 	       .init_cids		= (void *)qmap_init_cids,
 	       .init			= (void *)qmap_init,
 	       .exit			= (void *)qmap_exit,

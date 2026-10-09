@@ -195,6 +195,7 @@ struct qmap_arena {
 	u64 nr_enq_blocked;		/* SCX_ENQ_BLOCKED dispatches */
 	u64 nr_inject_attempts;		/* fault-injection: dispatches to an unheld cid */
 	u64 nr_rescue_dsp;		/* SCX_ENQ_RESCUE dispatch attempts */
+	u64 nr_child_ecaps;		/* ops.sub_child_ecaps_updated() deliveries */
 	u32 inject_mode;		/* fault-injection mode (QMAP_INJ_*) */
 };
 

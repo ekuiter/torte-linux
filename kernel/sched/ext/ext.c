@@ -1257,6 +1257,10 @@ void schedule_dsq_reenq(struct scx_sched *sch, struct scx_dispatch_q *dsq,
 
 			guard(raw_spinlock_irqsave)(&rq->scx.deferred_reenq_lock);
 
+			/* @dsq is being destroyed, see free_dsq_irq_workfn() */
+			if (unlikely(READ_ONCE(dsq->id) == SCX_DSQ_INVALID))
+				return;
+
 			if (list_empty(&dru->node))
 				list_move_tail(&dru->node, &rq->scx.deferred_reenq_users);
 			WRITE_ONCE(dru->flags, dru->flags | reenq_flags);
@@ -2211,8 +2215,14 @@ void scx_do_enqueue_task(struct rq *rq, struct task_struct *p, u64 enq_flags,
 	if (unlikely(!SCX_HAS_OP(sch, enqueue)))
 		goto global;
 
-	/* DSQ bypass didn't trigger, enqueue on the BPF scheduler */
-	qseq = rq->scx.ops_qseq++ << SCX_OPSS_QSEQ_SHIFT;
+	/*
+	 * DSQ bypass didn't trigger, enqueue on the BPF scheduler. Wrap the
+	 * per-task qseq counter where the QSEQ field wraps and skip 0, which is
+	 * what scx_bpf_dsq_insert() records for a task in NONE or DISPATCHING.
+	 */
+	p->scx.ops_qseq = ((p->scx.ops_qseq + 1) &
+			   (SCX_OPSS_QSEQ_MASK >> SCX_OPSS_QSEQ_SHIFT)) ?: 1;
+	qseq = (unsigned long)p->scx.ops_qseq << SCX_OPSS_QSEQ_SHIFT;
 
 	WARN_ON_ONCE(atomic_long_read(&p->scx.ops_state) != SCX_OPSS_NONE);
 	atomic_long_set(&p->scx.ops_state, SCX_OPSS_QUEUEING | qseq);
@@ -3576,8 +3586,7 @@ static void put_prev_task_scx(struct rq *rq, struct task_struct *p,
 		/*
 		 * If @p is runnable but we're about to enter a lower
 		 * sched_class, %SCX_OPS_ENQ_LAST must be set. Tell
-		 * ops.enqueue() that @p is the only one available for this cpu,
-		 * which should trigger an explicit follow-up scheduling event.
+		 * ops.enqueue() that @p is the only one available for this cpu.
 		 * This doesn't apply if the baseline access on the CPU is lost.
 		 *
 		 * Under core scheduling, a pick dispatches only when nothing is
@@ -3589,6 +3598,16 @@ static void put_prev_task_scx(struct rq *rq, struct task_struct *p,
 			WARN_ON_ONCE(!sched_core_enabled(rq) &&
 				     !(sch->ops.flags & SCX_OPS_ENQ_LAST));
 			scx_do_enqueue_task(rq, p, SCX_ENQ_LAST, -1);
+
+			/*
+			 * A task put on the local DSQ runs, as anywhere else.
+			 * Here the insert can't reschedule on its own: the pick
+			 * has settled on @next and @p is still curr, so
+			 * resched_curr() would flag @p and __schedule() clears
+			 * that right after the pick. Flag @next instead.
+			 */
+			if (p->scx.dsq == &rq->scx.local_dsq)
+				set_tsk_need_resched(next);
 		} else {
 			scx_do_enqueue_task(rq, p, 0, -1);
 		}
@@ -5625,8 +5644,8 @@ static void exit_dsq(struct scx_dispatch_q *dsq)
 		struct rq *rq = cpu_rq(cpu);
 
 		/*
-		 * There must have been a RCU grace period since the last
-		 * insertion and @dsq should be off the deferred list by now.
+		 * free_dsq_irq_workfn() cancelled the reenqs before the grace
+		 * period and schedule_dsq_reenq() queues nothing after that.
 		 */
 		if (WARN_ON_ONCE(!list_empty(&dru->node))) {
 			guard(raw_spinlock_irqsave)(&rq->scx.deferred_reenq_lock);
@@ -5650,8 +5669,26 @@ static void free_dsq_irq_workfn(struct irq_work *irq_work)
 	struct llist_node *to_free = llist_del_all(&dsqs_to_free);
 	struct scx_dispatch_q *dsq, *tmp_dsq;
 
-	llist_for_each_entry_safe(dsq, tmp_dsq, to_free, free_node)
+	llist_for_each_entry_safe(dsq, tmp_dsq, to_free, free_node) {
+		s32 cpu;
+
+		/*
+		 * Cancel pending reenqs. Only a run_deferred() that started
+		 * before the grace period can hold one, and it keeps IRQs off,
+		 * so the grace period waits for it. After this sweep,
+		 * schedule_dsq_reenq() sees the invalid id under the same lock
+		 * and queues nothing.
+		 */
+		for_each_possible_cpu(cpu) {
+			struct scx_dsq_pcpu *pcpu = per_cpu_ptr(dsq->pcpu_user, cpu);
+			struct rq *rq = cpu_rq(cpu);
+
+			guard(raw_spinlock_irqsave)(&rq->scx.deferred_reenq_lock);
+			list_del_init(&pcpu->deferred_reenq_user.node);
+		}
+
 		call_rcu(&dsq->rcu, free_dsq_rcufn);
+	}
 }
 
 static DEFINE_IRQ_WORK(free_dsq_irq_work, free_dsq_irq_workfn);
@@ -7432,9 +7469,9 @@ static void scx_dump_cpu(struct scx_sched *sch, struct seq_buf *s,
 	seq_buf_init(&ns, buf, avail);
 
 	dump_newline(&ns);
-	scx_dump_line(&ns, "CPU %-4d: nr_run=%u flags=0x%x cpu_rel=%d ops_qseq=%lu ksync=%lu",
+	scx_dump_line(&ns, "CPU %-4d: nr_run=%u flags=0x%x cpu_rel=%d ksync=%lu",
 		      cpu, rq->scx.nr_running, rq->scx.flags, rq->scx.cpu_released,
-		      rq->scx.ops_qseq, rq->scx.kick_sync);
+		      rq->scx.kick_sync);
 	scx_rescue_dump(&ns, rq);
 	scx_dump_line(&ns, "          curr=%s[%d] class=%ps",
 		      rq->curr->comm, rq->curr->pid, rq->curr->sched_class);
